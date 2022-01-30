@@ -16,12 +16,14 @@ stdscr.addstr(3,14,'Tilt')
 stdscr.addstr(3,26,'Yaw')
 stdscr.addstr(5,1,'RPM')
 stdscr.addstr(5,14,'MPH')
+stdscr.addstr(7,1,'Steering Angle')
+stdscr.addstr(7,25,'Torque')
 
 # update the screen with the text
 stdscr.refresh()
 
 # startup the canbus interface and filter only the ids that we want
-bus = can.interface.Bus('', bustype='socketcan',filter=[{"can_id": 0x2C2, "can_mask": 0xFFF},{"can_id": 0x02B, "can_mask": 0xFFF},{"can_id": 0x322, "can_mask": 0xFFF}])
+bus = can.interface.Bus('', bustype='socketcan',filter=[{"can_id": 0x2C2, "can_mask": 0xFFF},{"can_id": 0x02B, "can_mask": 0xFFF},{"can_id": 0x322, "can_mask": 0xFFF},{"can_id": 0x023, "can_mask": 0xFFF}])
 
 # wrap everything in a try to catch exceptions cleanly
 try:
@@ -43,9 +45,16 @@ try:
       # once the message has been processes, refresh the screen with the data
       stdscr.refresh()
     if msg.arbitration_id == 0x322 and msg.channel == 'can0':
-      stdscr.addstr(5,6,'%-6s' % str(((msg.data[0]<<8) +  msg.data[1])))
+      rpmstr =  str(((msg.data[0]<<8) +  msg.data[1]))
+      if rpmstr == "65535":
+        rpmstr = str(0)
+      stdscr.addstr(5,6,'%-6s' % rpmstr)
       stdscr.addstr(5,20,'%-6s' % str(((msg.data[2]<<8) + msg.data[3]) / 200))
       # once the message has been processes, refresh the screen with the data
+      stdscr.refresh()
+    if msg.arbitration_id == 0x023 and msg.channel == 'can1':
+      stdscr.addstr(7,15,'%-6s' % str((((msg.data[0]<<8) + msg.data[1]) - 4096) * .5 ))
+      stdscr.addstr(7,32,'%-6s' % str((msg.data[2]<<8) + msg.data[3]))
       stdscr.refresh()
 # catch errors, display them, and exit cleanly
 except:
