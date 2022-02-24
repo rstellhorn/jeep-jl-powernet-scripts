@@ -5,8 +5,8 @@
 import can
 import curses
 
-canIHS = "vcan0"
-canC = "vcan1"
+canIHS = "can0"
+canC = "can1"
 
 # start curses screen management
 stdscr = curses.initscr()
