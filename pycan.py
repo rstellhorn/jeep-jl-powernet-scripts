@@ -5,8 +5,8 @@
 import can
 import curses
 
-canIHS = "can0"
-canC = "can1"
+canIHS = "vcan0"
+canC = "vcan1"
 
 # start curses screen management
 stdscr = curses.initscr()
@@ -26,19 +26,21 @@ stdscr.addstr(6,25,'Turn')
 stdscr.addstr(6,40,'Temp')
 stdscr.addstr(6,50,'Pres')
 stdscr.addstr(8,1,'Tire psi')
-stdscr.addstr(10,1,'Brake Act')
-stdscr.addstr(10,18,'Pedal')
+stdscr.addstr(10,1,'Brake pedal')
+stdscr.addstr(10,18,'pressure')
 stdscr.addstr(10,30,'Motion')
 stdscr.addstr(12,1,'Temps IAT')
 stdscr.addstr(12,20,'Coolant')
 stdscr.addstr(14,1,'Lights')
-stdscr.addstr(18,1,'0x296')
+stdscr.addstr(16,1,'MPG')
+stdscr.addstr(16,30,'Cabin F')
+stdscr.addstr(18,1,'Oil PSI')
 
 # update the screen with the text
 stdscr.refresh()
 
 # startup the canbus interface and filter only the ids that we want
-bus = can.interface.Bus('', bustype='socketcan',filter=[{"can_id": 0x2C2, "can_mask": 0xFFF},{"can_id": 0x02B, "can_mask": 0xFFF},{"can_id": 0x322, "can_mask": 0xFFF},{"can_id": 0x023, "can_mask": 0xFFF},{"can_id": 0x077, "can_mask": 0xFFF},{"can_id": 0x127, "can_mask": 0xFFF},{"can_id": 0x128, "can_mask": 0xFFF},{"can_id": 0x037, "can_mask": 0xFFF},{"can_id": 0x071, "can_mask": 0xFFF},{"can_id": 0x093, "can_mask": 0xFFF},{"can_id": 0x2FF, "can_mask": 0xFFF},{"can_id": 0x30A, "can_mask": 0xFFF},{"can_id": 0x277, "can_mask": 0xFFF},{"can_id": 0x128, "can_mask": 0xFFF},{"can_id": 0x291, "can_mask": 0xFFF},{"can_id": 0x079, "can_mask": 0xFFF},{"can_id": 0x296, "can_mask": 0xFFF},{"can_id": 0x12B, "can_mask": 0xFFF}])
+bus = can.interface.Bus('', bustype='socketcan')
 
 # wrap everything in a try to catch exceptions cleanly
 try:
@@ -65,7 +67,7 @@ try:
       if rpmstr == "65535":
         rpmstr = str(0)
       stdscr.addstr(4,6,'%-6s' % rpmstr)
-      stdscr.addstr(4,20,'%-4s' % str(((msg.data[2]<<8) + msg.data[3]) / 200))
+      stdscr.addstr(4,20,'%-4s' % str(round(((msg.data[2]<<8) + msg.data[3]) / 200,1)))
       # once the message has been processes, refresh the screen with the data
       stdscr.refresh()
     if msg.arbitration_id == 0x023 and msg.channel == canC:
@@ -86,8 +88,6 @@ try:
     if msg.arbitration_id == 0x127 and msg.channel == canC:
       stdscr.addstr(12,15,'%-3s' % str(round((((msg.data[0] - 40) * (9 / 5)) + 32))))
       stdscr.addstr(12,30,'%-3s' % str(round((((msg.data[1] - 40) * (9 / 5)) + 32))))
-      stdscr.addstr(12,35,'%-3s' % str(msg.data[2]))
-      stdscr.addstr(12,40,'%-3s' % str(msg.data[4]))
       stdscr.refresh()
     if msg.arbitration_id == 0x291 and msg.channel == canC:
       stdscr.addstr(14,10,'%-4s' % hex(msg.data[0]))
@@ -98,10 +98,6 @@ try:
       stdscr.addstr(14,35,'%-4s' % hex(msg.data[5]))
       stdscr.addstr(14,40,'%-4s' % hex(msg.data[6]))
       stdscr.addstr(14,45,'%-4s' % hex(msg.data[7]))
-      stdscr.refresh()
-    if msg.arbitration_id == 0x037 and msg.channel == canC:
-      stdscr.addstr(16,50,'%-6s' % str((msg.data[0]<<8) + msg.data[1]))
-      stdscr.addstr(16,60,'%-6s' % str(msg.data[5]))
       stdscr.refresh()
     if msg.arbitration_id == 0x071 and msg.channel == canC:
       stdscr.addstr(12,50,'%-6s' % str((msg.data[0]<<8) + msg.data[1]))
@@ -124,6 +120,10 @@ try:
         mtstatus = '5'
       elif msg.data[2] == 0x36:
         mtstatus = '6'
+      elif msg.data[2] == 0x37:
+        mtstatus = '7'
+      elif msg.data[2] == 0x38:
+        mtstatus = '8'
       elif msg.data[2] == 0x50:
         mtstatus = 'P'
       elif msg.data[2] == 0x44:
@@ -149,10 +149,6 @@ try:
         mtstatus = msg.data[0]
       stdscr.addstr(4,45,'%-5s' % mtstatus)
       stdscr.refresh()
-    if msg.arbitration_id == 0x277 and msg.channel == canC:
-      stdscr.addstr(16,10,'%-6s' % str(msg.data[0]))
-      stdscr.addstr(16,20,'%-6s' % str(msg.data[2]))
-      stdscr.refresh()
     if msg.arbitration_id == 0x128 and msg.channel == canC:
       stdscr.addstr(6,45,'%-5s' % str(round((((msg.data[1]) * (9 / 5)) + 32))))
       stdscr.addstr(6,55,'%-5s' % str(msg.data[2]))
@@ -163,12 +159,30 @@ try:
       stdscr.addstr(8,20,'%-3s' % str(msg.data[4]))
       stdscr.addstr(8,25,'%-3s' % str(msg.data[5]))
       stdscr.addstr(8,30,'%-3s' % str(msg.data[6]))
-    if msg.arbitration_id == 0x296 and msg.channel == canC:
-      stdscr.addstr(18,10,'%-3s' % str(round((((msg.data[0] - 40) * (9 / 5)) + 32))))
-      stdscr.addstr(18,16,'%-3s' % hex(msg.data[1]))
-      stdscr.addstr(18,20,'%-3s' % hex(msg.data[2]))
-      stdscr.addstr(18,24,'%-3s' % hex(msg.data[3]))
-      stdscr.addstr(18,28,'%-3s' % hex(msg.data[4]))
+    if msg.arbitration_id == 0x2F2 and msg.channel == canC:
+      stdscr.addstr(16,20,'%-5s' % str(((msg.data[6]<<8) + msg.data[7]) / 10))
+    if msg.arbitration_id == 0x33A and msg.channel == canIHS:
+      stdscr.addstr(16,40,'%-6s' % str(round(((((((msg.data[0]<<8) + msg.data[1]) / 100) - 40) * (9 / 5)) + 32),1)))
+      stdscr.addstr(16,50,'%-4s' % hex(msg.data[2]))
+    if msg.arbitration_id == 0x13D and msg.channel == canC:
+      stdscr.addstr(18,10,'%-5s' % str(msg.data[2]))
+      stdscr.addstr(18,20,'%-5s' % str(msg.data[3])) 
+      stdscr.addstr(18,40,'%-4s' % str(msg.data[4]))
+      stdscr.addstr(18,50,'%-4s' % str(msg.data[5]))
+    if msg.arbitration_id == 0x30A and msg.channel == canIHS:
+      stdscr.addstr(20,10,'%-5s' % str(round((((msg.data[3] - 40) * (9 / 5)) + 32))))
+    if msg.arbitration_id == 0x230 and msg.channel == canIHS:
+      stdscr.addstr(20,20,'%-5s' % str(round((((msg.data[1] - 40) * (9 / 5)) + 32))))
+    if msg.arbitration_id == 0x332 and msg.channel == canIHS:
+      stdscr.addstr(20,30,'%-5s' % str(round((((msg.data[4] - 40) * (9 / 5)) + 32))))
+    if msg.arbitration_id == 0x3B2 and msg.channel == canIHS:
+      stdscr.addstr(20,40,'%-5s' % str(round((((msg.data[2] - 40) * (9 / 5)) + 32))))
+    if msg.arbitration_id == 0x13D and msg.channel == canC:
+      stdscr.addstr(12,35,'%-3s' % str(round((((msg.data[3] - 40) * (9 / 5)) + 32))))
+      stdscr.addstr(12,40,'%-3s' % str(round((msg.data[2] * 4) * 0.145038)))
+
+
+
 
 # catch errors, display them, and exit cleanly
 except:
