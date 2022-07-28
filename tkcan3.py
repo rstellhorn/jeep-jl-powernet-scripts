@@ -5,14 +5,7 @@ from tkinter import *
 import time
 import can
 import subprocess
-try:
-    camavail = True
-    import cv2
-    cap = cv2.VideoCapture(0)
-    if cap is None or not cap.isOpened():
-            camavail = False
-except:
-    camavail = False
+import signal
 
 # If using vcan for log playback, change the values in the quotes below
 can0 = "can0"
@@ -22,6 +15,7 @@ battv = None
 rpm = None
 mph = None
 fsstate = True
+cam = None
 
 def full():
         print("full screen")
@@ -121,41 +115,44 @@ def callback():
     topframe.quit()
 
 def camera():
- while(cap.isOpened()):
-  ret, frame = cap.read()
-  if ret == True:
-    cv2.imshow('Frame',frame)
-  else:
-    break
- cap.release()
+    global cam
+    if cam:
+        cam.terminate()
+        cam = None
+        frame.pack(side=TOP, fill="x")
+    else:
+        cam = subprocess.Popen(["raspivid", "-t", "0", "-v", "-w", "800", "-h", "480", "-op", "200"])
+        camstatus = cam.poll()
+        if camstatus is None:
+                frame.pack_forget()
 
 def button1():
     bigbutton1 = Button(
-    topframe, text="CAMERA", fg="red", font=("Helvetica", "16"), height=2, width=7, command=camera)
+    topframe, text="CAMERA", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=camera)
     bigbutton1.pack(side=LEFT)
 def button2():
     bigbutton2 = Button(
-        topframe, text="Wake Up", fg="red", font=("Helvetica", "16"), height=2, width=7, command=canwakeup)
+        topframe, text="Wake Up", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=canwakeup)
     bigbutton2.pack(side=LEFT)
 def button3():
     maxacbutton = Button(
-        topframe, text="MAX AC", fg="red", font=("Helvetica", "16"), height=2, width=7, command=maxac)
+        topframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
     maxacbutton.pack(side=LEFT)
 def button4():
     synchvacbutton = Button(
-        topframe, text="Sync", fg="red", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
+        topframe, text="Sync", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
     synchvacbutton.pack(side=LEFT)
 def button5():
      quitbutton = Button(
-     topframe, text="QUIT", fg="red", font=("Helvetica", "16"), height=2, width=7, command=topframe.quit)
+     topframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=topframe.quit)
      quitbutton.pack(side=LEFT)
 def button6():
     screenoffbutton = Button(
-        topframe, text="Screen OFF", fg="red", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
+        topframe, text="Screen OFF", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
     screenoffbutton.pack(side=LEFT)
 def button7():
     radiorebootbutton = Button(
-        topframe, text="Reboot", fg="red", font=("Helvetica", "16"), height=2, width=7, command=radioreboot)
+        topframe, text="Reboot", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=radioreboot)
     radiorebootbutton.pack(side=LEFT)
 
 
@@ -163,11 +160,12 @@ root = Tk()
 root.geometry("800x480+0+0")
 root.title("This is Root")
 root.protocol("WM_DELETE_WINDOW", callback)
-# root.attributes("-fullscreen", fsstate)
-root.configure(bg='gray')
+root.attributes("-fullscreen", fsstate)
+root.configure(bg='black')
 
 topframe=Frame(root)
-topframe.pack(side=BOTTOM)
+topframe.configure(bg='black')
+topframe.pack(side=BOTTOM, fill="x")
 button1()
 button2()
 button3()
@@ -175,21 +173,7 @@ button4()
 button5()
 button6()
 frame = Frame(root)
-frame.pack(side=TOP)
-
-blfr = Frame(frame)
-bldsc = Label(blfr, text="Backlight", font=("Helvetica", "16"))
-bldsc.pack(side=LEFT)
-backlight = Scale(blfr, command=blchange, orient=HORIZONTAL, length = 400, to = 100)
-backlight.pack(side=RIGHT)
-blfr.pack()
-
-battfr = Frame(frame)
-battvdsc = Label(battfr, text="Batt V", font=("Helvetica", "16"))
-battvdsc.pack(side=LEFT)
-battvlabel = Label(battfr, font=("Helvetica", "16"))
-battvlabel.pack(side=RIGHT)
-battfr.pack()
+frame.pack(side=TOP, fill="x")
 
 rpmfr = Frame(frame)
 rpmdsc = Label(rpmfr, text="RPM", font=("Helvetica", "16"))
@@ -219,9 +203,14 @@ mphfr = Frame(frame)
 mphdr = Label(mphfr, text="MPH", font=("Helvetica", "16"))
 mphdr.pack(side=LEFT)
 mphlabel = Label(mphfr, font=("Helvetica", "16"))
-mphlabel.pack(side=RIGHT)
-mphfr.pack()
+mphlabel.pack(side=LEFT)
 
+battvdsc = Label(mphfr, text="Batt V", font=("Helvetica", "16"))
+battvdsc.pack(side=LEFT)
+battvlabel = Label(mphfr, font=("Helvetica", "16"))
+battvlabel.pack(side=LEFT)
+
+mphfr.pack()
 
 bus = can.interface.Bus('', bustype='socketcan',filter=[{"can_id": 0x2C2, "can_mask": 0xFFF},{"can_id": 0x322, "can_mask": 0xFFF}])
 Notifier = can.Notifier(bus, [newmsg], loop=None)
@@ -229,4 +218,5 @@ Notifier = can.Notifier(bus, [newmsg], loop=None)
 
 root.mainloop()
 bus.shutdown()
-
+if cam:
+    cam.terminate()
