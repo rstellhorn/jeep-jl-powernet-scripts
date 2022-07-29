@@ -9,8 +9,8 @@ import curses
 canFilter = list()
 
 # can bus variables, change these for vcan or can
-canIHS = "vcan0"
-canC = "vcan1"
+canIHS = "can0"
+canC = "can1"
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a):
@@ -82,49 +82,55 @@ def xfer(x,a):
 def steer(x,a,b):
     return(((x[a]<<8) + x[b]) - 0x1000)
 
-def wrapper(msg,name,func,output,*args):
+def wrapper(msg,name,func,output,colum,*args):
     return(func(msg,*args))
 
 def pstemp(x,a):
     return(round(((x[a] * (9 / 5)) + 32)))
 
 # list of can ID's and details to monitor in this order:
-# (ID, Channel, [("name", process, type, byte1, byte2)])
+# (ID, Channel, [("name", process, type, colum, byte1, byte2)])
 monitorlist=[(0x2C2,
               canIHS,
-              [("Batt V",volt,str,2),
-               ("Batt ?",raw8,hex,0)]),
+              [("Batt V",volt,str,0,2),
+               ("Batt ?",raw8,hex,0,0)]),
              (0x02B,
               canC,
-              [("Roll",tilt,str,0,1),
-               ("Tilt",tilt,str,2,3),
-               ("Yaw",tilt,str,4,5)]),
+              [("Roll",tilt,str,0,0,1),
+               ("Tilt",tilt,str,0,2,3),
+               ("Yaw",tilt,str,0,4,5)]),
              (0x322,
               canIHS,
-              [("RPM",rpm,str,0,1),
-               ("MPH",mph,str,2,3)]),
+              [("RPM",rpm,str,0,0,1),
+               ("MPH",mph,str,0,2,3)]),
              (0x127,
               canC,
-              [("IAT",temp,str,0),
-               ("Coolant",temp,str,1)]),
+              [("IAT",temp,str,0,0),
+               ("Coolant",temp,str,0,1)]),
              (0x13D,
               canC,
-              [("Oil Temp",temp,str,3),
-               ("Oil Pres",psi,str,2)]),
+              [("Oil Temp",temp,str,0,3),
+               ("Oil Pres",psi,str,0,2)]),
              (0x093,
               canC,
-              [("Gear",gear,str,2)]),
+              [("Gear",gear,str,0,2)]),
              (0x277,
               canC,
-              [("Transfer",xfer,str,0)]),
+              [("Transfer",xfer,str,0,0)]),
              (0x023,
               canC,
-              [("Steer Angl",steer,str,0,1),
-               ("Rate",steer,str,2,3)]),
+              [("Steer Angl",steer,str,0,0,1),
+               ("Rate",steer,str,0,2,3)]),
              (0x128,
               canC,
-              [("PS Temp",pstemp,str,1),
-               ("PS PSI",psi,str,2)])
+              [("PS Temp",pstemp,str,0,1),
+               ("PS PSI",raw8,str,0,2),
+               ("PS UNK 3",raw8,str,0,3)]),
+             (0x13F,
+              canC,
+              [("0x13F 2",raw8,str,0,1),
+               ("0x13F 2 3",raw16,str,0,2,3),
+               ("0x13F 4 5",raw16,str,0,4,5)])
               ]
 
 stdscr = curses.initscr()

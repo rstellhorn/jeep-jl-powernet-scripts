@@ -106,11 +106,11 @@ def radioreboot():
   bus.send(radiorebootcmd, timeout=1)
 
 def maxac():
-  maxaccmd = can.Message(data=[0, 0, 0, 0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=can0)
+  maxaccmd = can.Message(data=[0x80, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x342, channel=can0)
   bus.send(maxaccmd, timeout=1)
 
 def synchvac():
-  synchvaccmd = can.Message(data=[0x08, 0, 0, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x342, channel=can0)
+  synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=can0)
   bus.send(synchvaccmd, timeout=1)
 
 def callback():

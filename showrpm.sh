@@ -45,7 +45,7 @@ candump -T 10000 -L $id | \
     n=$((n+1))
 
     # If the time is right, refresh the title.
-    [ $(( $n % $trate )) -eq 0 ] && evic 1 "$tname"
+    [ $(( $n % $trate )) -eq 0 ] && ./evic.sh 1 "$tname"
 
     # Extract the value we selected.
     value=${c:$pos:$size}
@@ -58,7 +58,7 @@ candump -T 10000 -L $id | \
     [ "$text" == "65535" ] && text=OFF
 
     # If the time is right, refresh with the latest text.
-    [ $(( $n % $rate )) -eq 0 ] && evic 3 "$text"
+    [ $(( $n % $rate )) -eq 0 ] && ./evic.sh 3 "$text"
   done
 )
 
