@@ -174,6 +174,7 @@ button5()
 button6()
 frame = Frame(root)
 frame.pack(side=TOP, fill="x")
+frame.configure(bg='black')
 
 rpmfr = Frame(frame)
 rpmdsc = Label(rpmfr, text="RPM", font=("Helvetica", "16"))
@@ -209,8 +210,7 @@ battvdsc = Label(mphfr, text="Batt V", font=("Helvetica", "16"))
 battvdsc.pack(side=LEFT)
 battvlabel = Label(mphfr, font=("Helvetica", "16"))
 battvlabel.pack(side=LEFT)
-
-mphfr.pack()
+mphfr.pack(side=BOTTOM)
 
 bus = can.interface.Bus('', bustype='socketcan',filter=[{"can_id": 0x2C2, "can_mask": 0xFFF},{"can_id": 0x322, "can_mask": 0xFFF}])
 Notifier = can.Notifier(bus, [newmsg], loop=None)
