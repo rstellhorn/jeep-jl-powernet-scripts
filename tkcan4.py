@@ -8,8 +8,8 @@ import subprocess
 import signal
 
 # If using vcan for log playback, change the values in the quotes below
-canIHS = "vcan0"
-canC = "vcan1"
+canIHS = "can0"
+canC = "can1"
 
 canFilter = list()
 
@@ -268,20 +268,20 @@ monitorlist=[(0x2C2,
 
 # Buttons
 def canwakeup():
-  wakeup = can.Message(data=[0x07, 0, 0, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x2D3, channel=can0)
+  wakeup = can.Message(data=[0x07, 0, 0, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x2D3, channel=CanIHS)
   print(wakeup)
   bus.send(wakeup, timeout=1)
 
 def radioreboot():
-  radiorebootcmd = can.Message(data=[0x02, 0x11, 0x01, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x7BF, channel=can0)
+  radiorebootcmd = can.Message(data=[0x02, 0x11, 0x01, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x7BF, channel=canIHS)
   bus.send(radiorebootcmd, timeout=1)
 
 def maxac():
-  maxaccmd = can.Message(data=[0x80, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x342, channel=can0)
+  maxaccmd = can.Message(data=[0x80, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(maxaccmd, timeout=1)
 
 def synchvac():
-  synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=can0)
+  synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(synchvaccmd, timeout=1)
 
 def blankscreen():
