@@ -123,14 +123,10 @@ def newrpm(lrpm):
     if lrpm == 65535:
       lrpm = 0
     if lrpm != oldrpm:
-      gauge1.itemconfig(gauge1label, text=str(lrpm))
-      rpmangle = (120 * (hi_r - lrpm) / (hi_r - low_r) + 30)
-      gauge1.itemconfig(gauge1needle,start = rpmangle)
-      gauge1.grid()
       oldrpm = lrpm
 
 def newmph(lmph):
-    if str(mph) != text1label["text"]:
+    if str(lmph) != text1label["text"]:
       text1label["text"] = str(lmph)
       text1label.pack()
 
@@ -154,7 +150,7 @@ def newpstemp(lpstemp):
     low_r = 50 # chart low range
     hi_r = 250 # chart hi range
     if lpstemp != oldpstemp:
-      gauge2.itemconfig(gauge2label, text=str(lpstemp))
+      text8label["text"] = str(lpstemp)
       pstempangle = (120 * (hi_r - lpstemp) / (hi_r - low_r) + 30)
       gauge2.itemconfig(gauge2needle,start = pstempangle)
       gauge2.grid()
@@ -165,7 +161,7 @@ def newiat(liat):
     low_r = 50 # chart low range
     hi_r = 250 # chart hi range
     if liat != oldiat:
-      gauge3.itemconfig(gauge3label, text=str(liat))
+      text9label["text"] = str(liat)
       iattempangle = (120 * (hi_r - liat) / (hi_r - low_r) + 30)
       gauge3.itemconfig(gauge3needle,start = iattempangle)
       gauge3.grid()
@@ -175,11 +171,12 @@ def newcoolant(lcoolant):
     global oldcoolant
     low_r = 100 # chart low range
     hi_r = 300 # chart hi range
-    if lcoolant != oldcoolant:
-      gauge4.itemconfig(gauge4label, text=str(lcoolant))
+    if str(lcoolant) != text7label["text"]:
+      text7label["text"] = str(lcoolant)
+      text7label.pack()
       coolanttempangle = (120 * (hi_r - lcoolant) / (hi_r - low_r) + 30)
-      gauge4.itemconfig(gauge4needle,start = coolanttempangle)
-      gauge4.grid()
+      gauge1.itemconfig(gauge1needle,start = coolanttempangle)
+      gauge1.grid()
       oldcoolant = lcoolant
 
 def newoiltemp(loiltemp):
@@ -187,7 +184,7 @@ def newoiltemp(loiltemp):
     low_r = 100 # chart low range
     hi_r = 300 # chart hi range
     if loiltemp != oldoiltemp:
-      gauge5.itemconfig(gauge5label, text=str(loiltemp))
+      text11label["text"] = str(loiltemp)
       oiltemptempangle = (120 * (hi_r - loiltemp) / (hi_r - low_r) + 30)
       gauge5.itemconfig(gauge5needle,start = oiltemptempangle)
       gauge5.grid()
@@ -198,7 +195,7 @@ def newoilpres(loilpres):
     low_r = 0 # chart low range
     hi_r = 80 # chart hi range
     if loilpres != oldoilpres:
-      gauge6.itemconfig(gauge5label, text=str(loilpres))
+      text12label["text"] = str(loilpres)
       oilprestempangle = (120 * (hi_r - loilpres) / (hi_r - low_r) + 30)
       gauge6.itemconfig(gauge6needle,start = oilprestempangle)
       gauge6.grid()
@@ -382,6 +379,40 @@ text6dsc.pack(side=LEFT)
 text6label = Label(textframe, font=("Helvetica", "16"), width=5)
 text6label.pack(side=LEFT)
 
+textframe2=Frame(root)
+textframe2.pack(side=BOTTOM, fill="x")
+
+text7dsc = Label(textframe2, text="CoolT", font=("Helvetica", "16"))
+text7dsc.pack(side=LEFT)
+text7label = Label(textframe2, font=("Helvetica", "16"), width=5)
+text7label.pack(side=LEFT)
+
+text8dsc = Label(textframe2, text="PsTemp", font=("Helvetica", "16"))
+text8dsc.pack(side=LEFT)
+text8label = Label(textframe2, font=("Helvetica", "16"), width=5)
+text8label.pack(side=LEFT)
+
+text9dsc = Label(textframe2, text="IAT", font=("Helvetica", "16"))
+text9dsc.pack(side=LEFT)
+text9label = Label(textframe2, font=("Helvetica", "16"), width=5)
+text9label.pack(side=LEFT)
+
+text10dsc = Label(textframe2, text="", font=("Helvetica", "16"))
+text10dsc.pack(side=LEFT)
+text10label = Label(textframe2, font=("Helvetica", "16"), width=5)
+text10label.pack(side=LEFT)
+
+text11dsc = Label(textframe2, text="Oil", font=("Helvetica", "16"))
+text11dsc.pack(side=LEFT)
+text11label = Label(textframe2, font=("Helvetica", "16"), width=5)
+text11label.pack(side=LEFT)
+
+text12dsc = Label(textframe2, text="OilPres", font=("Helvetica", "16"))
+text12dsc.pack(side=LEFT)
+text12label = Label(textframe2, font=("Helvetica", "16"), width=5)
+text12label.pack(side=LEFT)
+
+
 frame = Frame(root)
 frame.pack(side=TOP, fill="x")
 frame.configure(bg='black')
@@ -392,8 +423,7 @@ fullcoord = 0, 0, 175, 175
 gauge1 = Canvas(frame, width=200, height=175)
 gauge1.grid(row=1, column=1)
 gauge1.create_arc(coord, start=30, extent=120, fill="white",  width=2)
-gauge1desc = gauge1.create_text(100,120, text="RPM", font=("Helvetica", "16"))
-gauge1label = gauge1.create_text(100,80, text="", font=("Helvetica", "16"))
+gauge1desc = gauge1.create_text(100,120, text="CoolT", font=("Helvetica", "16"))
 gauge1needle = gauge1.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge2 = Canvas(frame, width=200, height=175)
@@ -413,15 +443,13 @@ gauge3needle = gauge3.create_arc(coord, start= 150, extent=1, width=7)
 gauge4 = Canvas(frame, width=200, height=175)
 gauge4.grid(row=1, column=4)
 gauge4.create_arc(coord, start=30, extent=120, fill="white",  width=2)
-gauge4desc = gauge4.create_text(100,120, text="CoolTemp", font=("Helvetica", "16"))
-gauge4label = gauge4.create_text(100,80, text="", font=("Helvetica", "16"))
+gauge4desc = gauge4.create_text(100,120, text="", font=("Helvetica", "16"))
 gauge4needle = gauge4.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge5 = Canvas(frame, width=200, height=175)
 gauge5.grid(row=2, column=1)
 gauge5.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge5desc = gauge5.create_text(100,120, text="OilTemp", font=("Helvetica", "16"))
-gauge5label = gauge5.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge5needle = gauge5.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge6 = Canvas(frame, width=200, height=175)
