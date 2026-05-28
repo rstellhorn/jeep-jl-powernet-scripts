@@ -60,7 +60,13 @@ while [ $MUTEID != $MUTEWANTED ]
     # If no response was found, try again.
     if [ "$RESPONSE" == "" ] ; then
       DELAY=1.6
-      /home/pi/bin/wake
+      # NM wake frame: $2D3 with byte 2 = 0x00 is the standard
+      # "everyone wake up" signal on CAN-IHS. Previously called
+      # out to /home/pi/bin/wake which isn't part of this repo
+      # and isn't documented anywhere -- so the script broke on
+      # any install where that file didn't exist. Inlining the
+      # frame send so the script is self-contained.
+      cansend can0 2D3#0700000000000000
       request_mute
     fi
 
