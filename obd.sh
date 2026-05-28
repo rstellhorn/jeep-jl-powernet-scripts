@@ -39,9 +39,15 @@ initialize () {
       DATA=${DATA:2}
     }
     # Extract the message length and message data.
-    LENGTH=$( printf "%d" 0x$LENGTH ) 2>/dev/null
-    LENGTH=$(( $LENGTH - 2 )) >> /dev/null 2>/dev/null
-    DATA=${DATA:0:$(( LENGTH * 2 ))} 2>/dev/null
+    # Note: the previous form put `2>/dev/null` AFTER the variable
+    # assignment, where it redirects nothing -- the bash parser
+    # applies redirects to the assignment, not to the command
+    # substitution that produces the value. Move them inside the
+    # $( ... ) (or drop where unnecessary) so errors are actually
+    # suppressed when LENGTH is empty / non-numeric.
+    LENGTH=$( printf "%d" "0x${LENGTH:-0}" 2>/dev/null )
+    LENGTH=$(( ${LENGTH:-0} - 2 ))
+    DATA=${DATA:0:$(( LENGTH * 2 ))}
   }
 }
 
@@ -71,7 +77,7 @@ if [ $? -ne 0 ] ; then
 fi
 
 # Send the OBD-II query to the BCM.
-# NOTE: This REQUIIRES the vehicle to be running.
+# NOTE: This REQUIRES the vehicle to be running.
 WAIT=0.2
 initialize
 
