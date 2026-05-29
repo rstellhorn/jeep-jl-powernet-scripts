@@ -212,7 +212,7 @@ mphlabel.pack(side=RIGHT)
 mphfr.pack()
 
 
-bus = can.interface.Bus('', bustype='socketcan',filter=[{"can_id": 0x2C2, "can_mask": 0xFFF},{"can_id": 0x322, "can_mask": 0xFFF}])
+bus = can.interface.Bus('', interface='socketcan',filter=[{"can_id": 0x2C2, "can_mask": 0xFFF},{"can_id": 0x322, "can_mask": 0xFFF}])
 Notifier = can.Notifier(bus, [newmsg], loop=None)
 
 

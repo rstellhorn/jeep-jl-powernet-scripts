@@ -283,7 +283,7 @@ gauge8desc = gauge8.create_text(100,120, text="ROLL", font=("Helvetica", "16"))
 gauge8label = gauge8.create_text(100,140, text="", font=("Helvetica", "16"))
 gauge8needle = gauge8.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
 
-bus = can.interface.Bus('', bustype='socketcan',filter=[{"can_id": 0x2C2, "can_mask": 0xFFF},{"can_id": 0x322, "can_mask": 0xFFF}])
+bus = can.interface.Bus('', interface='socketcan',filter=[{"can_id": 0x2C2, "can_mask": 0xFFF},{"can_id": 0x322, "can_mask": 0xFFF}])
 Notifier = can.Notifier(bus, [newmsg], loop=None)
 
 

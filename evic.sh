@@ -37,7 +37,7 @@ do
   length=$(( $length + 1 ))
 done
 lines=$(( $length / 3 ))
-[ "$DEBUG" == "true" ] && echo "FUNCTION: $function"
+[ "$DEBUG" == "true" ] && echo "FUNCTION: $FUNCTION"
 [ "$DEBUG" == "true" ] && echo "STRING  : $string"
 [ "$DEBUG" == "true" ] && echo "LENGTH  : $length characters ($lines lines)"
 [ "$DEBUG" == "true" ] && echo "ENCODED : ${message[*]}"

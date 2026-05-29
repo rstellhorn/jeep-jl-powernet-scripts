@@ -40,7 +40,7 @@ stdscr.addstr(18,1,'Oil PSI')
 stdscr.refresh()
 
 # startup the canbus interface and filter only the ids that we want
-bus = can.interface.Bus('', bustype='socketcan')
+bus = can.interface.Bus('', interface='socketcan')
 
 # wrap everything in a try to catch exceptions cleanly
 try:

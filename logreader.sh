@@ -1,5 +1,11 @@
 #!/bin/bash
-TMPDIR=/run/tmpfiles.d
+# Per-CAN-ID state files. Was /run/tmpfiles.d, which is systemd's
+# reserved directory for declarative tmpfiles configuration (read
+# at boot by systemd-tmpfiles to create / clean / chmod paths).
+# Writing arbitrary app state there pollutes systemd's namespace
+# and can race with systemd-tmpfiles startup. /tmp is the
+# conventional place for this.
+TMPDIR=/tmp
 
 # Set only one of these to 1, the rest to 0
 UPDATE_SECONDS=1

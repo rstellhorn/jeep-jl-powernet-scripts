@@ -503,7 +503,7 @@ for monitor in monitorlist:
 
 
 # define the can bus
-bus = can.interface.Bus('', bustype='socketcan', filter=canFilter)
+bus = can.interface.Bus('', interface='socketcan', filter=canFilter)
 Notifier = can.Notifier(bus, [newmsg], loop=None)
 
 

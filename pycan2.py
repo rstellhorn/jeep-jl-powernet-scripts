@@ -146,7 +146,7 @@ for monitor in monitorlist:
 stdscr.refresh()
 
 # define the can bus
-bus = can.interface.Bus('', bustype='socketcan', filter=canFilter)
+bus = can.interface.Bus('', interface='socketcan', filter=canFilter)
 
 # Process every single message received from the canbus
 try:
