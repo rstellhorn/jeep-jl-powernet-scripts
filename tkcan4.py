@@ -6,6 +6,7 @@ import time
 import can
 import subprocess
 import signal
+import sys
 
 # If using vcan for log playback, change the values in the quotes below
 canIHS = "can0"
@@ -27,6 +28,7 @@ oldiat = None
 oldcoolant = None
 oldoiltemp = None
 oldoilpres = None
+oldboost = None
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a):
@@ -54,6 +56,9 @@ def mph(x,a,b):
 
 def psi(x,a):
     return(round(((x[a] * 4) * 0.145038)))
+
+def boost(x,a):
+    return(round(((x[a] * .1706) - 1.365)))
 
 def gear(x,a):
     if x[a] == 0x4E:
@@ -230,6 +235,17 @@ def newroll(lroll):
        else:
                gauge8.itemconfig(gauge8needle, fill="green")
 
+def newboost(lboost):
+    global oldboost
+    low_r = 0 # chart low range
+    hi_r = 35 # chart hi range
+    if lboost != oldboost:
+      text10label["text"] = str(lboost)
+      boosttempangle = (120 * (hi_r - lboost) / (hi_r - low_r) + 30)
+      gauge4.itemconfig(gauge4needle,start = boosttempangle)
+      gauge4.grid()
+      oldboost = lboost
+
 
 # list of can ID's and details to monitor in this order:
 # (ID, Channel, [("name", process, type, function, byte1, byte2)])
@@ -260,8 +276,11 @@ monitorlist=[(0x2C2,
               [("Transfer",xfer,newxfer,0)]),
              (0x128,
               canC,
-              [("PS Temp",pstemp,newpstemp,1)])
-              ]
+              [("PS Temp",pstemp,newpstemp,1)]),
+              (0x081,
+              canC,
+              [("MAP",boost,newboost,4)])
+             ]
 
 
 # Buttons
@@ -306,7 +325,29 @@ def candump():
         dump.terminate()
         dump = None
     else:
-        dump = subprocess.Popen(["candump", "-l", "any"])
+        dump = subprocess.Popen(["candump", "-l", "any", timeout=300])
+
+def quitprogram():
+
+    global notifier
+    global canC
+    global canIHS
+    try:
+        notifier.stop()
+    except:
+        pass
+    try:
+        canC.shutdown()
+    except:
+        pass
+
+    try:
+        canIHS.shutdown()
+    except:
+        pass
+    root.quit()
+    root.destroy()
+    sys.exit(0)
 
 
 def button1():
@@ -315,19 +356,19 @@ def button1():
     bigbutton1.pack(side=LEFT)
 def button2():
     bigbutton2 = Button(
-        topframe, text="Wake Up", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=canwakeup)
+        topframe, text="CANDUMP", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=candump)
     bigbutton2.pack(side=LEFT)
 def button3():
     maxacbutton = Button(
         topframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
     maxacbutton.pack(side=LEFT)
 def button4():
-    synchvacbutton = Button(
-        topframe, text="Sync", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
-    synchvacbutton.pack(side=LEFT)
+    batterybutton = Button(
+        topframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
+    batterybutton.pack(side=LEFT)
 def button5():
      quitbutton = Button(
-     topframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=topframe.quit)
+     topframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
      quitbutton.pack(side=LEFT)
 def button6():
     screenoffbutton = Button(
@@ -335,7 +376,7 @@ def button6():
     screenoffbutton.pack(side=LEFT)
 def button7():
     radiorebootbutton = Button(
-        topframe, text="Reboot", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=radioreboot)
+        topframe, text="BUTTON7", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7)
     radiorebootbutton.pack(side=LEFT)
 
 
@@ -355,6 +396,7 @@ button3()
 button4()
 button5()
 button6()
+button7()
 
 textframe=Frame(root)
 textframe.pack(side=BOTTOM, fill="x")
@@ -407,7 +449,7 @@ text9dsc.pack(side=LEFT)
 text9label = Label(textframe2, font=("Helvetica", "16"), width=5)
 text9label.pack(side=LEFT)
 
-text10dsc = Label(textframe2, text="", font=("Helvetica", "16"))
+text10dsc = Label(textframe2, text="MAP", font=("Helvetica", "16"))
 text10dsc.pack(side=LEFT)
 text10label = Label(textframe2, font=("Helvetica", "16"), width=5)
 text10label.pack(side=LEFT)
@@ -427,7 +469,7 @@ frame = Frame(root)
 frame.pack(side=TOP, fill="x")
 frame.configure(bg='black')
 
-coord = 0, 0, 200, 350 #define the size of the gaug
+coord = 0, 0, 200, 350 #define the size of the gauge
 fullcoord = 0, 0, 175, 175
 
 gauge1 = Canvas(frame, width=200, height=175)
@@ -453,7 +495,7 @@ gauge3needle = gauge3.create_arc(coord, start= 150, extent=1, width=7)
 gauge4 = Canvas(frame, width=200, height=175)
 gauge4.grid(row=1, column=4)
 gauge4.create_arc(coord, start=30, extent=120, fill="white",  width=2)
-gauge4desc = gauge4.create_text(100,120, text="", font=("Helvetica", "16"))
+gauge4desc = gauge4.create_text(100,120, text="MAP", font=("Helvetica", "16"))
 gauge4needle = gauge4.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge5 = Canvas(frame, width=200, height=175)
@@ -514,7 +556,3 @@ if cam:
 if dump:
     dump.terminate()
 
-root.mainloop()
-bus.shutdown()
-if cam:
-    cam.terminate()
