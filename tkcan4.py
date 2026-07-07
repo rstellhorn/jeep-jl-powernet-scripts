@@ -336,8 +336,10 @@ def candump():
     if dump:
         dump.terminate()
         dump = None
+        bigbutton2.config(relief=RAISED, bg="black", activebackground="black")
     else:
         dump = subprocess.Popen(["candump", "-l", "any", "-n", "50000", "-T", "1000"])
+        bigbutton2.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
 
 def quitprogram():
 
@@ -345,6 +347,7 @@ def quitprogram():
     global bus
     global dump
     global cam
+    global root
     try:
         notifier.stop()
     except:
@@ -361,39 +364,15 @@ def quitprogram():
         cam.terminate()
     except:
         pass
-    root.quit()
-    root.destroy()
+    try:
+         root.quit()
+    except:
+        pass
+    try:
+        root.destroy()
+    except:
+        pass
     sys.exit(0)
-
-
-def button1():
-    bigbutton1 = Button(
-    topframe, text="CAMERA", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=camera)
-    bigbutton1.pack(side=LEFT)
-def button2():
-    bigbutton2 = Button(
-        topframe, text="CANDUMP", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=candump)
-    bigbutton2.pack(side=LEFT)
-def button3():
-    maxacbutton = Button(
-        topframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
-    maxacbutton.pack(side=LEFT)
-def button4():
-    batterybutton = Button(
-        topframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
-    batterybutton.pack(side=LEFT)
-def button5():
-     quitbutton = Button(
-     topframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
-     quitbutton.pack(side=LEFT)
-def button6():
-    screenoffbutton = Button(
-        topframe, text="Screen OFF", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
-    screenoffbutton.pack(side=LEFT)
-def button7():
-    radiorebootbutton = Button(
-        topframe, text="BUTTON7", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7)
-    radiorebootbutton.pack(side=LEFT)
 
 
 root = Tk()
@@ -407,13 +386,28 @@ root.configure(bg='black')
 topframe=Frame(root)
 topframe.configure(bg='black')
 topframe.pack(side=BOTTOM, fill="x")
-button1()
-button2()
-button3()
-button4()
-button5()
-button6()
-button7()
+
+bigbutton1 = Button(
+    topframe, text="CAMERA", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=camera)
+bigbutton1.pack(side=LEFT)
+bigbutton2 = Button(
+    topframe, text="CANDUMP", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=candump)
+bigbutton2.pack(side=LEFT)
+maxacbutton = Button(
+    topframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
+maxacbutton.pack(side=LEFT)
+batterybutton = Button(
+    topframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
+batterybutton.pack(side=LEFT)
+quitbutton = Button(
+    topframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
+quitbutton.pack(side=LEFT)
+screenoffbutton = Button(
+    topframe, text="Screen OFF", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
+screenoffbutton.pack(side=LEFT)
+radiorebootbutton = Button(
+    topframe, text="BUTTON7", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7)
+radiorebootbutton.pack(side=LEFT)
 
 textframe=Frame(root)
 textframe.pack(side=BOTTOM, fill="x")
@@ -565,7 +559,26 @@ for monitor in monitorlist:
 bus = can.interface.Bus('', interface='socketcan', filter=canFilter)
 Notifier = can.Notifier(bus, [newmsg], loop=None)
 
+# Forces tkinter to look for external signals/interrupts and runs things while in mainloop
+def check_signals():
+    global dump
+    if dump:
+        poll = dump.poll()
+        if poll is not None:
+            dump.terminate()
+            dump = None
+            bigbutton2.config(relief=RAISED, bg="black", activebackground="black")
+    root.after(1000, check_signals)
 
-root.mainloop()
+# Start the polling loop before mainloop
+root.after(100, check_signals)
+
+try:
+    # Starts the infinite GUI loop
+    root.mainloop()
+except KeyboardInterrupt:
+    print("\nKeyboardInterrupt detected. Closing GUI safely...")
+    # Destroys the window and frees memory
+    root.destroy()
 quitprogram()
 
