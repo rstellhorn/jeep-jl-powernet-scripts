@@ -7,10 +7,22 @@ import can
 import subprocess
 import signal
 import sys
+import argparse
 
+# Use parser to provide help and command line options
+parser = argparse.ArgumentParser("GUI dashboard canbus data display built for 2018+ Jeep JL/JT/etc... products")
+parser.add_argument('--vcan', action='store_true',
+                    help='Use VCAN0 and VCAN1 for testing')
+parser.add_argument('--fullscreen', '-f', action='store_true',
+                    help='Turn off Full Screen for testing')
+args = parser.parse_args()
 # If using vcan for log playback, change the values in the quotes below
-canIHS = "can0"
-canC = "can1"
+if args.vcan:
+    canIHS = "vcan0"
+    canC = "vcan1"
+else:
+    canIHS = "can0"
+    canC = "can1"
 
 canFilter = list()
 
@@ -325,24 +337,28 @@ def candump():
         dump.terminate()
         dump = None
     else:
-        dump = subprocess.Popen(["candump", "-l", "any"], timeout=300)
+        dump = subprocess.Popen(["candump", "-l", "any", "-n", "50000", "-T", "1000"])
 
 def quitprogram():
 
     global notifier
-    global canC
-    global canIHS
+    global bus
+    global dump
+    global cam
     try:
         notifier.stop()
     except:
         pass
     try:
-        canC.shutdown()
+        bus.shutdown()
     except:
         pass
-
     try:
-        canIHS.shutdown()
+        dump.terminate()
+    except:
+        pass
+    try:
+        cam.terminate()
     except:
         pass
     root.quit()
@@ -384,7 +400,8 @@ root = Tk()
 root.geometry("800x480+0+0")
 root.title("This is Root")
 root.protocol("WM_DELETE_WINDOW", callback)
-root.attributes("-fullscreen", fsstate)
+if args.fullscreen:
+    root.attributes("-fullscreen", fsstate)
 root.configure(bg='black')
 
 topframe=Frame(root)
@@ -550,9 +567,5 @@ Notifier = can.Notifier(bus, [newmsg], loop=None)
 
 
 root.mainloop()
-bus.shutdown()
-if cam:
-    cam.terminate()
-if dump:
-    dump.terminate()
+quitprogram()
 
