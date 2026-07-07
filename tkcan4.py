@@ -9,6 +9,7 @@ import signal
 import sys
 import argparse
 
+
 # Use parser to provide help and command line options
 parser = argparse.ArgumentParser("GUI dashboard canbus data display built for 2018+ Jeep JL/JT/etc... products")
 parser.add_argument('--vcan', action='store_true',
@@ -16,6 +17,8 @@ parser.add_argument('--vcan', action='store_true',
 parser.add_argument('--fullscreen', '-f', action='store_true',
                     help='Turn off Full Screen for testing')
 args = parser.parse_args()
+
+
 # If using vcan for log playback, change the values in the quotes below
 if args.vcan:
     canIHS = "vcan0"
@@ -24,8 +27,8 @@ else:
     canIHS = "can0"
     canC = "can1"
 
+# Initialize variables
 canFilter = list()
-
 battv = None
 rpm = None
 mph = None
@@ -41,22 +44,22 @@ oldcoolant = None
 oldoiltemp = None
 oldoilpres = None
 oldboost = None
-oldbaro = None
+oldbaro = 0
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
-def raw8(x,a):
+def raw8(x,a): #Raw decimal 8 bit
     return(x[a])
 
-def raw16(x,a,b):
+def raw16(x,a,b): #Raw decimal 16 bit
     return((x[a]<<8) + x[b])
 
-def volt(x,a):
+def volt(x,a): #Battery Volts
     return(x[a] / 10)
 
-def temp(x,a):
+def temp(x,a): #Oil temperature in F
     return(round((((x[a] - 40) * (9 / 5)) + 32)))
 
-def tilt(x,a,b):
+def tilt(x,a,b): #Angle in Degrees
     return(round(((x[a]<<8) + x[b] - 2048) / 10))
 
 def rpm(x,a,b):
@@ -67,10 +70,16 @@ def rpm(x,a,b):
 def mph(x,a,b):
     return(round(((x[a]<<8) + x[b]) / 200,1))
 
-def psi(x,a):
+def psi(x,a): #Oil Pressure in PSI
     return(round(((x[a] * 4) * 0.145038)))
 
-def boost(x,a,b):
+def steer(x,a,b): #Steering angle
+    return(((x[a]<<8) + x[b]) - 0x1000)
+
+def pstemp(x,a): #Power Steering pump temperature in F
+    return(round(((x[a] * (9 / 5)) + 32)))
+
+def boost(x,a,b): #MAP and Boost normalized and combined in PSI
     mapl = round((x[a] - oldbaro) * 0.145038)
     mapt = round((((x[b] * 0.8) + 94.6) - oldbaro) * 0.145038)
     if mapl > 0:
@@ -78,10 +87,10 @@ def boost(x,a,b):
     else:
         return(mapl)
 
-def baro(x,a):
+def baro(x,a): #Barometer in KPA
     return(x[a])
 
-def gear(x,a):
+def gear(x,a): #Transmission gear selection
     if x[a] == 0x4E:
         return('N')
     elif x[a] == 0x52:
@@ -107,7 +116,7 @@ def gear(x,a):
     elif x[a] == 0x44:
         return('D')
 
-def xfer(x,a):
+def xfer(x,a): #Transfer Case gear selection
     if x[a] == 0x00:
         return('2H')
     elif x[a] == 0x02:
@@ -123,26 +132,8 @@ def xfer(x,a):
     else:
         return('??')
 
-def steer(x,a,b):
-    return(((x[a]<<8) + x[b]) - 0x1000)
-
-def pstemp(x,a):
-    return(round(((x[a] * (9 / 5)) + 32)))
-
 
 # Display Functions
-def full():
-        print("full screen")
-        global fsstate
-        fsstate = not fsstate
-        root.attributes("-fullscreen", fsstate)
-        if fsstate == True:
-            fullbutton.config(relief=SUNKEN, text="Small")
-            fullbutton.pack()
-        else:
-            fullbutton.config(relief=RAISED, text="Full")
-            fullbutton.pack()
-
 def newrpm(lrpm):
     global oldrpm
     low_r = 0 # chart low range
@@ -271,6 +262,7 @@ def newbaro(lbaro):
     global oldbaro
     oldbaro = lbaro
 
+
 # list of can ID's and details to monitor in this order:
 # (ID, Channel, [("name", process, type, function, byte1, byte2)])
 monitorlist=[(0x2C2,
@@ -308,7 +300,7 @@ monitorlist=[(0x2C2,
              ]
 
 
-# Buttons
+# Button commands
 def canwakeup():
   wakeup = can.Message(data=[0x07, 0, 0, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x2D3, channel=CanIHS)
   print(wakeup)
@@ -326,11 +318,10 @@ def synchvac():
   synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(synchvaccmd, timeout=1)
 
+
+# Subprocess functions - executes external commands
 def blankscreen():
     subprocess.call(['xscreensaver-command', '-activate'])
-
-def callback():
-    topframe.quit()
 
 def camera():
     global cam
@@ -354,17 +345,19 @@ def candump():
         dump = subprocess.Popen(["candump", "-l", "any", "-n", "50000", "-T", "1000"])
         bigbutton2.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
 
-def quitprogram():
 
+# Correctly and cleanly close this program
+def quitprogram():
     global notifier
     global bus
     global dump
     global cam
     global root
     try:
-        notifier.stop()
+        notifier.stop(timeout = 1)
     except:
         pass
+    time.sleep(1)
     try:
         bus.shutdown()
     except:
@@ -388,14 +381,17 @@ def quitprogram():
     sys.exit(0)
 
 
+# Setup the graphics window
 root = Tk()
 root.geometry("800x480+0+0")
 root.title("This is Root")
-root.protocol("WM_DELETE_WINDOW", callback)
+root.protocol("WM_DELETE_WINDOW", quitprogram)
 if args.fullscreen:
     root.attributes("-fullscreen", fsstate)
 root.configure(bg='black')
 
+
+# Setup the button row
 topframe=Frame(root)
 topframe.configure(bg='black')
 topframe.pack(side=BOTTOM, fill="x")
@@ -422,6 +418,8 @@ radiorebootbutton = Button(
     topframe, text="BUTTON7", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7)
 radiorebootbutton.pack(side=LEFT)
 
+
+# Setup the text row
 textframe=Frame(root)
 textframe.pack(side=BOTTOM, fill="x")
 
@@ -489,11 +487,12 @@ text12label = Label(textframe2, font=("Helvetica", "16"), width=5)
 text12label.pack(side=LEFT)
 
 
+# Setup the gauge display
 frame = Frame(root)
 frame.pack(side=TOP, fill="x")
 frame.configure(bg='black')
 
-coord = 0, 0, 200, 350 #define the size of the gauge
+coord = 0, 0, 200, 350 # define the size of the gauge
 fullcoord = 0, 0, 175, 175
 
 gauge1 = Canvas(frame, width=200, height=175)
@@ -550,21 +549,20 @@ gauge8label = gauge8.create_text(100,140, text="", font=("Helvetica", "16"))
 gauge8needle = gauge8.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
 
 
-# cheat
-def wrapper(msg,name,func,output,*args):
-    output(func(msg,*args))
-
-
 # Process every single message received from the canbus
 def newmsg(msg):
   for monitor in monitorlist:
    if msg.arbitration_id == monitor[0] and msg.channel == monitor[1]:
     for detail in monitor[2]:
-     wrapper((msg.data),*detail)
+     name = detail[0]
+     decoder = detail[1]
+     callbk = detail[2]
+     args = detail[3:]
+     callbk(decoder(msg.data, *args))
 
-# Build the can filter list
+
+# build out the can bus filtering list. only receive messages that we care about.
 for monitor in monitorlist:
- # build out the can bus filtering list. only receive messages that we care about.
  canFilter.append({"can_id": monitor[0], "can_mask": 0xFFF, "can_channel": monitor[1]})
 
 
@@ -572,8 +570,10 @@ for monitor in monitorlist:
 bus = can.interface.Bus('', interface='socketcan', filter=canFilter)
 Notifier = can.Notifier(bus, [newmsg], loop=None)
 
-# Forces tkinter to look for external signals/interrupts and runs things while in mainloop
+
+# Forces tkinter to periodically look for external signals/interrupts and run things while in mainloop
 def check_signals():
+    # Check if candump has closed and if so reset the button
     global dump
     if dump:
         poll = dump.poll()
@@ -583,8 +583,8 @@ def check_signals():
             bigbutton2.config(relief=RAISED, bg="black", activebackground="black")
     root.after(1000, check_signals)
 
-# Start the polling loop before mainloop
 root.after(100, check_signals)
+
 
 try:
     # Starts the infinite GUI loop
