@@ -69,8 +69,13 @@ def mph(x,a,b):
 def psi(x,a):
     return(round(((x[a] * 4) * 0.145038)))
 
-def boost(x,a):
-    return(round(((x[a] * .1706) - 1.365)))
+def boost(x,a,b):
+    mapl = round((x[a] - 101.3) * 0.145038)
+    mapt = round((x[a] * .1706) - 1.365)
+    if mapl > 0:
+        return(mapt)
+    else:
+        return(mapl)
 
 def gear(x,a):
     if x[a] == 0x4E:
@@ -249,7 +254,7 @@ def newroll(lroll):
 
 def newboost(lboost):
     global oldboost
-    low_r = 0 # chart low range
+    low_r = -35 # chart low range
     hi_r = 35 # chart hi range
     if lboost != oldboost:
       text10label["text"] = str(lboost)
@@ -291,7 +296,7 @@ monitorlist=[(0x2C2,
               [("PS Temp",pstemp,newpstemp,1)]),
               (0x081,
               canC,
-              [("MAP",boost,newboost,4)])
+              [("MAP",boost,newboost,2,4)])
              ]
 
 
