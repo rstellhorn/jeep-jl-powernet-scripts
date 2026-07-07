@@ -41,6 +41,7 @@ oldcoolant = None
 oldoiltemp = None
 oldoilpres = None
 oldboost = None
+oldbaro = None
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a):
@@ -70,12 +71,15 @@ def psi(x,a):
     return(round(((x[a] * 4) * 0.145038)))
 
 def boost(x,a,b):
-    mapl = round((x[a] - 101.3) * 0.145038)
-    mapt = round((x[a] * .1706) - 1.365)
+    mapl = round((x[a] - oldbaro) * 0.145038)
+    mapt = round((((x[b] * 0.8) + 94.6) - oldbaro) * 0.145038)
     if mapl > 0:
         return(mapt)
     else:
         return(mapl)
+
+def baro(x,a):
+    return(x[a])
 
 def gear(x,a):
     if x[a] == 0x4E:
@@ -263,6 +267,9 @@ def newboost(lboost):
       gauge4.grid()
       oldboost = lboost
 
+def newbaro(lbaro):
+    global oldbaro
+    oldbaro = lbaro
 
 # list of can ID's and details to monitor in this order:
 # (ID, Channel, [("name", process, type, function, byte1, byte2)])
@@ -280,7 +287,8 @@ monitorlist=[(0x2C2,
              (0x127,
               canC,
               [("IAT",temp,newiat,0),
-               ("Coolant",temp,newcoolant,1)]),
+               ("Coolant",temp,newcoolant,1),
+               ("BARO",baro,newbaro,2)]),
              (0x13D,
               canC,
               [("Oil Temp",temp,newoiltemp,3),
