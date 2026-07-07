@@ -325,7 +325,7 @@ def candump():
         dump.terminate()
         dump = None
     else:
-        dump = subprocess.Popen(["candump", "-l", "any", timeout=300])
+        dump = subprocess.Popen(["candump", "-l", "any"], timeout=300)
 
 def quitprogram():
 
