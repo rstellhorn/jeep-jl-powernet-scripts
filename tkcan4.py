@@ -298,12 +298,12 @@ def camera():
     if cam:
         cam.terminate()
         cam = None
-        frame.pack(side=TOP, fill="x")
+        gaugeframe.pack(side=TOP, fill="x")
     else:
         cam = subprocess.Popen(["raspivid", "-t", "0", "-v", "-w", "800", "-h", "480", "-op", "200"])
         camstatus = cam.poll()
         if camstatus is None:
-                frame.pack_forget()
+                gaugeframe.pack_forget()
 
 def candump():
     global dump
