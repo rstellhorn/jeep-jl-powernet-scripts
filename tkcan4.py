@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser("GUI dashboard canbus data display built for 20
 parser.add_argument('--vcan', action='store_true',
                     help='Use VCAN0 and VCAN1 for testing')
 parser.add_argument('--fullscreen', '-f', action='store_true',
-                    help='Turn off Full Screen for testing')
+                    help='Enable Full Screen')
 args = parser.parse_args()
 
 
@@ -333,8 +333,10 @@ def quitprogram():
         dump.terminate()
     if cam:
         cam.terminate()
-    root.quit()
-    root.destroy()
+    try:
+        root.quit()
+    except:
+        root.destroy()
     sys.exit(0)
 
 
@@ -349,30 +351,30 @@ root.configure(bg='black')
 
 
 # Setup the button row
-topframe=Frame(root)
-topframe.configure(bg='black')
-topframe.pack(side=BOTTOM, fill="x")
+buttonframe=Frame(root)
+buttonframe.configure(bg='black')
+buttonframe.pack(side=BOTTOM, fill="x")
 
 bigbutton1 = Button(
-    topframe, text="CAMERA", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=camera)
+    buttonframe, text="CAMERA", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=camera)
 bigbutton1.pack(side=LEFT)
 bigbutton2 = Button(
-    topframe, text="CANDUMP", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=candump)
+    buttonframe, text="CANDUMP", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=candump)
 bigbutton2.pack(side=LEFT)
 maxacbutton = Button(
-    topframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
+    buttonframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
 maxacbutton.pack(side=LEFT)
 batterybutton = Button(
-    topframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
+    buttonframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
 batterybutton.pack(side=LEFT)
 quitbutton = Button(
-    topframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
+    buttonframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
 quitbutton.pack(side=LEFT)
 screenoffbutton = Button(
-    topframe, text="Screen OFF", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
+    buttonframe, text="Screen OFF", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
 screenoffbutton.pack(side=LEFT)
 radiorebootbutton = Button(
-    topframe, text="BUTTON7", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7)
+    buttonframe, text="BUTTON7", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7)
 radiorebootbutton.pack(side=LEFT)
 
 
@@ -445,60 +447,60 @@ text12label.pack(side=LEFT)
 
 
 # Setup the gauge display
-frame = Frame(root)
-frame.pack(side=TOP, fill="x")
-frame.configure(bg='black')
+gaugeframe = Frame(root)
+gaugeframe.pack(side=TOP, fill="x")
+gaugeframe.configure(bg='black')
 
 coord = 0, 0, 200, 350 # define the size of the gauge
 fullcoord = 0, 0, 175, 175
 
-gauge1 = Canvas(frame, width=200, height=175)
+gauge1 = Canvas(gaugeframe, width=200, height=175)
 gauge1.grid(row=1, column=1)
 gauge1.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge1desc = gauge1.create_text(100,120, text="CoolT", font=("Helvetica", "16"))
 gauge1needle = gauge1.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge2 = Canvas(frame, width=200, height=175)
+gauge2 = Canvas(gaugeframe, width=200, height=175)
 gauge2.grid(row=1, column=2)
 gauge2.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge2desc = gauge2.create_text(100,120, text="PSTEMP", font=("Helvetica", "16"))
 gauge2label = gauge2.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge2needle = gauge2.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge3 = Canvas(frame, width=200, height=175)
+gauge3 = Canvas(gaugeframe, width=200, height=175)
 gauge3.grid(row=1, column=3)
 gauge3.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge3desc = gauge3.create_text(100,120, text="IAT", font=("Helvetica", "16"))
 gauge3label = gauge3.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge3needle = gauge3.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge4 = Canvas(frame, width=200, height=175)
+gauge4 = Canvas(gaugeframe, width=200, height=175)
 gauge4.grid(row=1, column=4)
 gauge4.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge4desc = gauge4.create_text(100,120, text="MAP", font=("Helvetica", "16"))
 gauge4needle = gauge4.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge5 = Canvas(frame, width=200, height=175)
+gauge5 = Canvas(gaugeframe, width=200, height=175)
 gauge5.grid(row=2, column=1)
 gauge5.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge5desc = gauge5.create_text(100,120, text="OilTemp", font=("Helvetica", "16"))
 gauge5needle = gauge5.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge6 = Canvas(frame, width=200, height=175)
+gauge6 = Canvas(gaugeframe, width=200, height=175)
 gauge6.grid(row=2, column=2)
 gauge6.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge6desc = gauge6.create_text(100,120, text="OilPres", font=("Helvetica", "16"))
 gauge6label = gauge6.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge6needle = gauge6.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge7 = Canvas(frame, width=200, height=175)
+gauge7 = Canvas(gaugeframe, width=200, height=175)
 gauge7.grid(row=2, column=3)
 gauge7.create_oval(fullcoord, fill="white",  width=2)
 gauge7desc = gauge7.create_text(100,120, text="TILT", font=("Helvetica", "16"))
 gauge7label = gauge7.create_text(100,140, text="", font=("Helvetica", "16"))
 gauge7needle = gauge7.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
 
-gauge8 = Canvas(frame, width=200, height=175)
+gauge8 = Canvas(gaugeframe, width=200, height=175)
 gauge8.grid(row=2, column=4)
 gauge8.create_oval(fullcoord, fill="white",  width=2)
 gauge8desc = gauge8.create_text(100,120, text="ROLL", font=("Helvetica", "16"))
