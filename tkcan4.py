@@ -8,6 +8,7 @@ import subprocess
 import signal
 import sys
 import argparse
+import queue
 
 
 # Use parser to provide help and command line options
@@ -29,10 +30,7 @@ else:
 
 # Initialize variables
 canFilter = list()
-battv = None
-rpm = None
-mph = None
-fsstate = True
+shutting_down = False
 cam = None
 dump = None
 oldpstemp = None
@@ -91,46 +89,32 @@ def baro(x,a): #Barometer in KPA
     return(x[a])
 
 def gear(x,a): #Transmission gear selection
-    if x[a] == 0x4E:
-        return('N')
-    elif x[a] == 0x52:
-        return('R')
-    elif x[a] == 0x31:
-        return('1')
-    elif x[a] == 0x32:
-        return('2')
-    elif x[a] == 0x33:
-        return('3')
-    elif x[a] == 0x34:
-        return('4')
-    elif x[a] == 0x35:
-        return('5')
-    elif x[a] == 0x36:
-        return('6')
-    elif x[a] == 0x37:
-        return('7')
-    elif x[a] == 0x38:
-        return('8')
-    elif x[a] == 0x50:
-        return('P')
-    elif x[a] == 0x44:
-        return('D')
+    GEARS = {
+        0x4E: "N",
+        0x52: "R",
+        0x31: "1",
+        0x32: "2",
+        0x33: "3",
+        0x34: "4",
+        0x35: "5",
+        0x36: "6",
+        0x37: "7",
+        0x38: "8",
+        0x50: "P",
+        0x44: "D"
+        }
+    return GEARS.get(x[a], "?")
 
 def xfer(x,a): #Transfer Case gear selection
-    if x[a] == 0x00:
-        return('2H')
-    elif x[a] == 0x02:
-        return('N')
-    elif x[a] == 0x10:
-        return('4H')
-    elif x[a] == 0x20:
-        return('N')
-    elif x[a] == 0x40:
-        return('4L')
-    elif x[a] == 0x80:
-        return('XX')
-    else:
-        return('??')
+    XFERS = {
+        0x00: "2H",
+        0x02: "N",
+        0x10: "4H",
+        0x20: "N",
+        0x40: "4L",
+        0x80: "XX",
+        }
+    return XFERS.get(x[a], "?")
 
 
 # Display Functions
@@ -146,22 +130,18 @@ def newrpm(lrpm):
 def newmph(lmph):
     if str(lmph) != text1label["text"]:
       text1label["text"] = str(lmph)
-      text1label.pack()
 
 def newbattv(lbattv):
     if str(lbattv) != text2label["text"]:
       text2label["text"] = str(lbattv)
-      text2label.pack()
 
 def newgear(lgear):
     if str(lgear) != text3label["text"]:
         text3label["text"] = str(lgear)
-        text3label.pack()
 
 def newxfer(lxfer):
     if str(lxfer) != text4label["text"]:
         text4label["text"] = str(lxfer)
-        text4label.pack()
 
 def newpstemp(lpstemp):
     global oldpstemp
@@ -191,7 +171,6 @@ def newcoolant(lcoolant):
     hi_r = 300 # chart hi range
     if str(lcoolant) != text7label["text"]:
       text7label["text"] = str(lcoolant)
-      text7label.pack()
       coolanttempangle = (120 * (hi_r - lcoolant) / (hi_r - low_r) + 30)
       gauge1.itemconfig(gauge1needle,start = coolanttempangle)
       gauge1.grid()
@@ -301,15 +280,6 @@ monitorlist=[(0x2C2,
 
 
 # Button commands
-def canwakeup():
-  wakeup = can.Message(data=[0x07, 0, 0, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x2D3, channel=CanIHS)
-  print(wakeup)
-  bus.send(wakeup, timeout=1)
-
-def radioreboot():
-  radiorebootcmd = can.Message(data=[0x02, 0x11, 0x01, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x7BF, channel=canIHS)
-  bus.send(radiorebootcmd, timeout=1)
-
 def maxac():
   maxaccmd = can.Message(data=[0x80, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(maxaccmd, timeout=1)
@@ -353,31 +323,18 @@ def quitprogram():
     global dump
     global cam
     global root
-    try:
-        notifier.stop(timeout = 1)
-    except:
-        pass
-    time.sleep(1)
-    try:
-        bus.shutdown()
-    except:
-        pass
-    try:
+    global shutting_down
+    global queue_after
+    shutting_down = True
+    notifier.stop(timeout = 1)
+    bus.shutdown()
+    root.after_cancel(queue_after)
+    if dump:
         dump.terminate()
-    except:
-        pass
-    try:
+    if cam:
         cam.terminate()
-    except:
-        pass
-    try:
-         root.quit()
-    except:
-        pass
-    try:
-        root.destroy()
-    except:
-        pass
+    root.quit()
+    root.destroy()
     sys.exit(0)
 
 
@@ -387,7 +344,7 @@ root.geometry("800x480+0+0")
 root.title("This is Root")
 root.protocol("WM_DELETE_WINDOW", quitprogram)
 if args.fullscreen:
-    root.attributes("-fullscreen", fsstate)
+    root.attributes("-fullscreen", True)
 root.configure(bg='black')
 
 
@@ -549,8 +506,12 @@ gauge8label = gauge8.create_text(100,140, text="", font=("Helvetica", "16"))
 gauge8needle = gauge8.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
 
 
-# Process every single message received from the canbus
+# Queue every single message received from the canbus
+gui_queue = queue.Queue()
+
 def newmsg(msg):
+  if shutting_down:
+   return
   for monitor in monitorlist:
    if msg.arbitration_id == monitor[0] and msg.channel == monitor[1]:
     for detail in monitor[2]:
@@ -558,20 +519,21 @@ def newmsg(msg):
      decoder = detail[1]
      callbk = detail[2]
      args = detail[3:]
-     callbk(decoder(msg.data, *args))
+     value = decoder(msg.data, *args)
+     gui_queue.put((callbk, value))
 
 
-# build out the can bus filtering list. only receive messages that we care about.
+# Build out the can bus filtering list. only receive messages that we care about.
 for monitor in monitorlist:
  canFilter.append({"can_id": monitor[0], "can_mask": 0xFFF, "can_channel": monitor[1]})
 
 
-# define the can bus
+# Define the can bus
 bus = can.interface.Bus('', interface='socketcan', filter=canFilter)
-Notifier = can.Notifier(bus, [newmsg], loop=None)
+notifier = can.Notifier(bus, [newmsg], loop=None)
 
 
-# Forces tkinter to periodically look for external signals/interrupts and run things while in mainloop
+# Forces tkinter to periodically look for external signals/interrupts and run things while in mainloop()
 def check_signals():
     # Check if candump has closed and if so reset the button
     global dump
@@ -586,12 +548,28 @@ def check_signals():
 root.after(100, check_signals)
 
 
+# Process all of the queued the can messages inside tkinter mainloop()
+def process_gui_queue():
+    global queue_after
+    while True:
+        try:
+            callbk, value = gui_queue.get_nowait()
+        except queue.Empty:
+            break
+        try:
+            callbk(value)
+        except Exception as e:
+            print(f"GUI callback {callbk.__name__} failed: {e}")
+    queue_after = root.after(10, process_gui_queue)
+
+queue_after = root.after(10, process_gui_queue)
+
+
+# Start the tkinter mainloop and shutdown cleanly when closed
 try:
-    # Starts the infinite GUI loop
     root.mainloop()
 except KeyboardInterrupt:
     print("\nKeyboardInterrupt detected. Closing GUI safely...")
-    # Destroys the window and frees memory
-    root.destroy()
-quitprogram()
+finally:
+    quitprogram()
 
