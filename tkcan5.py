@@ -9,6 +9,7 @@ import signal
 import sys
 import argparse
 import queue
+import math
 
 
 # Use parser to provide help and command line options
@@ -38,8 +39,8 @@ batterytexts = []
 batterylabelsdrawn = []
 oldpstemp = None
 oldrpm = None
-oldtilt = None
-oldroll = None
+oldtilt = 0.0
+oldroll = 0.0
 oldiat = None
 oldcoolant = None
 oldoiltemp = None
@@ -48,6 +49,7 @@ oldboost = None
 oldbaro = 0
 oldbatterytemps = [0] * 18
 battery_page = False
+ac_page = False
 oldbatterycurrent = None
 packvoltage = None
 cellvoltages = [0.0] * 96
@@ -55,7 +57,17 @@ avgcellvoltage = 0.0
 mincellvoltage = 0.0
 maxcellvoltage = 0.0
 celldelta = 0.0
-
+horizoncanvas = None
+horizonline = None
+pitchtext = None
+rolltext = None
+filteredRoll = 0.0
+filteredTilt = 0.0
+oldcurrentgear = None
+oldinputspeed = None
+oldacmode = None
+oldevaptemp = None
+oldrecirc = None
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a): #Raw decimal 8 bit
@@ -136,6 +148,22 @@ def batterycurrent(x,a): #4xe HV battery pack current
 def cellvoltage(x,a): #4xe HV Battery pack individual cell voltage
     raw = ((x[a] << 8) | x[a+1])
     return(round(raw / 1000.0, 3))
+
+def acmode(x,a): #Air Conditioning selection
+    MODE = {
+        0x00: "Off",
+        0x01: "Vent",
+        0x03: "AC",
+        0x07: "Defrost"
+        }
+    return MODE.get(x[a], f"{x[a]:x}")
+
+def recirc(x,a): #Air Recirculation selection
+    MODE = {
+        0x00: "outside",
+        0x08: "recirc"
+        }
+    return MODE.get(x[a], f"{x[a]:x}")
 
 
 # Display Functions
@@ -221,31 +249,21 @@ def newoilpres(loilpres):
 
 def newtilt(ltilt):
     global oldtilt
-    if ltilt != oldtilt:
-       gauge7.itemconfig(gauge7label, text=str(ltilt))
-       gauge7.itemconfig(gauge7needle, start=ltilt)
-       gauge7.grid()
-       oldtilt = ltilt
-       if ltilt > 15:
-               gauge7.itemconfig(gauge7needle, fill="yellow")
-       if ltilt > 25:
-               gauge7.itemconfig(gauge7needle, fill="red")
-       else:
-               gauge7.itemconfig(gauge7needle, fill="green")
+    global filteredTilt
+    FILTER = 0.05 # 0.10 = smoother, 0.25 = more responsive
+    filteredTilt += FILTER * ((ltilt * -1) - filteredTilt)
+    if filteredTilt != oldtilt:
+       oldtilt = filteredTilt
+       updatehorizon()
 
 def newroll(lroll):
     global oldroll
-    if lroll != oldroll:
-       gauge8.itemconfig(gauge8label, text=str(lroll))
-       gauge8.itemconfig(gauge8needle, start=lroll)
-       gauge8.grid()
-       oldroll = lroll
-       if lroll > 15:
-               gauge8.itemconfig(gauge8needle, fill="yellow")
-       if lroll > 25:
-               gauge8.itemconfig(gauge8needle, fill="red")
-       else:
-               gauge8.itemconfig(gauge8needle, fill="green")
+    global filteredRoll
+    FILTER = 0.05 # 0.10 = smoother, 0.25 = more responsive
+    filteredRoll += FILTER * ((lroll * -1) - filteredRoll)
+    if filteredRoll != oldroll:
+       oldroll = filteredRoll
+       updatehorizon()
 
 def newboost(lboost):
     global oldboost
@@ -261,6 +279,16 @@ def newboost(lboost):
 def newbaro(lbaro):
     global oldbaro
     oldbaro = lbaro
+
+def newcurrentgear(lcurrentgear):
+    global oldcurrentgear
+    if oldcurrentgear != lcurrentgear:
+        oldcurrentgear = lcurrentgear
+
+def newinputspeed(linputspeed):
+    global oldinputspeed
+    if oldinputspeed != linputspeed:
+        oldinputspeed = linputspeed
 
 def newbatterytemp(index, value):
     global oldbatterytemps
@@ -322,6 +350,24 @@ def newbatterycurrent(lbatterycurrent):
         oldbatterycurrent = lbatterycurrent
         newbatterykw()
 
+def newacmode(lacmode):
+    global oldacmode
+    if lacmode != oldacmode:
+        oldbacmode = lacmode
+        actext1label["text"] = str(lacmode)
+
+def newrecirc(lrecirc):
+    global oldrecirc
+    if lrecirc != oldrecirc:
+        oldrecirc = lrecirc
+        actext3label["text"] = str(lrecirc)
+
+def newevaptemp(levaptemp):
+    global oldevaptemp
+    if levaptemp != oldevaptemp:
+        oldevaptemp = levaptemp
+        actext2label["text"] = str(levaptemp)
+
 def newcellvoltage(index, value):
     global avgcellvoltage
     global packvoltage
@@ -346,6 +392,51 @@ def newcellvoltage(index, value):
             if packvoltage is not lpackvoltage:
                 packvoltage = lpackvoltage
                 newbatterykw()
+
+def updatehorizon():
+    global oldtilt
+    global oldroll
+    cx = 100
+    cy = 87.5
+    pitchscale = 3.0
+    length = 75
+    p = max(-20, min(20, oldtilt)) # keep the line on the display
+    yc = cy - p * pitchscale
+    theta = math.radians(oldroll)
+    dx = length * math.cos(theta)
+    dy = length * math.sin(theta)
+    x1 = cx - dx
+    y1 = yc + dy
+    x2 = cx + dx
+    y2 = yc - dy
+    angle = max(abs(oldtilt), abs(oldroll))
+    if angle < 15:
+        color = "lime"
+    elif angle < 25:
+        color = "yellow"
+    elif angle < 35:
+        color = "orange"
+    else:
+        color = "red"
+    horizoncanvas.coords(
+        horizonline,
+        x1, y1,
+        x2, y2
+    )
+    horizoncanvas.itemconfig(
+        horizonline,
+        fill=color
+    )
+    roundtilt=abs(round(oldtilt))
+    horizoncanvas.itemconfig(
+        pitchtext,
+        text=f"P:{roundtilt}°"
+    )
+    roundroll=abs(round(oldroll))
+    horizoncanvas.itemconfig(
+        rolltext,
+        text=f"R:{roundroll}°"
+    )
 
 
 # list of can ID's and details to monitor in this order:
@@ -408,7 +499,16 @@ monitorlist=[(0x2C2,
                ("BattTemp17", temp, lambda v: newbatterytemp(17, v), 7)]),
              (0x485,
               canC,
-              [("BatteryCurrent",batterycurrent,newbatterycurrent,0)])
+              [("BatteryCurrent",batterycurrent,newbatterycurrent,0)]),
+             (0x285,
+              canC,
+              [("CurrentGear",gear,newcurrentgear,1),
+               ("InputSpeed",rpm,newinputspeed,5,6)]),
+             (0x230,
+              canIHS,
+              [("ACmode",acmode,newacmode,0),
+               ("EvapTemp",temp,newevaptemp,1),
+               ("Recirc",recirc,newrecirc,3)])
              ]
 for canid in range(0x487, 0x49F):
     basecell = (canid - 0x487) * 4
@@ -448,17 +548,41 @@ def synchvac():
   synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(synchvaccmd, timeout=1)
 
-def togglepage():
+def toggleBattpage():
     global battery_page
-
+    global ac_page
     if battery_page:
         batteryframe.pack_forget()
         gaugeframe.pack(side=TOP, fill="x")
         battery_page = False
+        batterybutton.config(relief=RAISED, bg="black", activebackground="black")
     else:
         gaugeframe.pack_forget()
+        acframe.pack_forget()
         batteryframe.pack(side=TOP, fill="both", expand=True)
         battery_page = True
+        ac_page = False
+        acbutton.config(relief=RAISED, bg="black", activebackground="black")
+        batterybutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+
+def toggleACpage():
+    global ac_page
+    global battery_page
+    if ac_page:
+        acframe.pack_forget()
+        gaugeframe.pack(side=TOP, fill="x")
+        ac_page = False
+        acbutton.config(relief=RAISED, bg="black", activebackground="black")
+    else:
+        gaugeframe.pack_forget()
+        batteryframe.pack_forget()
+        acframe.pack(side=TOP, fill="both", expand=True)
+        ac_page = True
+        battery_page = False
+        batterybutton.config(relief=RAISED, bg="black", activebackground="black")
+        acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+
+
 
 # Subprocess functions - executes external commands
 def blankscreen():
@@ -470,25 +594,27 @@ def camera():
         cam.terminate()
         cam = None
         gaugeframe.pack(side=TOP, fill="x")
+        cambutton.config(relief=RAISED, bg="black", activebackground="black")
     else:
         cam = subprocess.Popen(["raspivid", "-t", "0", "-v", "-w", "800", "-h", "480", "-op", "200"])
         camstatus = cam.poll()
         if camstatus is None:
                 gaugeframe.pack_forget()
+        else:
+            cambutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
 
 def candump():
     global dump
     if dump:
         dump.terminate()
         dump = None
-        bigbutton2.config(relief=RAISED, bg="black", activebackground="black")
+        dumpbutton.config(relief=RAISED, bg="black", activebackground="black")
     else:
-        dump = subprocess.Popen(["candump", "-l", "any", "-n", "50000", "-T", "1000"])
-        bigbutton2.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+        dump = subprocess.Popen(["candump", "-l", "any", "-n", "1000000", "-T", "1000"])
+        dumpbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
 
 
-# Correctly and cleanly close this program
-def quitprogram():
+def quitprogram(): # Correctly and cleanly close this program
     global notifier
     global bus
     global dump
@@ -511,6 +637,76 @@ def quitprogram():
     sys.exit(0)
 
 
+# Special display configuration
+def setuphorizondisplay(parent, row, column): # artificial horizon for displaying tilt and roll
+    global horizoncanvas
+    global horizonline
+    global pitchtext
+    global rolltext
+    w = 200
+    h = 175
+    cx = w / 2
+    cy = h / 2
+    radius = 85
+    horizoncanvas = Canvas(
+        parent,
+        width=w,
+        height=h,
+    )
+    horizoncanvas.grid(row=row, column=column)
+    horizoncanvas.create_oval( # outer circle
+        cx-radius,
+        cy-radius,
+        cx+radius,
+        cy+radius,
+        outline="black",
+        fill="white",
+        width=2
+    )
+    for angle in range(-90, 91, 30): # roll tick marks
+        a = math.radians(angle - 90)
+        outer = radius
+        inner = radius - 8
+        if angle in (-90, 0, 90):
+            inner = radius - 14
+        x1 = cx + inner * math.cos(a)
+        y1 = cy + inner * math.sin(a)
+        x2 = cx + outer * math.cos(a)
+        y2 = cy + outer * math.sin(a)
+        horizoncanvas.create_line(
+            x1, y1, x2, y2,
+            fill="black",
+            width=2
+        )
+    horizoncanvas.create_oval( # center dot
+        cx-2,
+        cy-2,
+        cx+2,
+        cy+2,
+        fill="black",
+        outline="black"
+    )
+    horizonline = horizoncanvas.create_line( # horizon line
+        0, 0, 0, 0,
+        fill="lime",
+        width=10
+    )
+    pitchtext = horizoncanvas.create_text(
+        cx,
+        h-40,
+        text="P:0°",
+        fill="black",
+        font=("Helvetica", "16")
+    )
+    rolltext = horizoncanvas.create_text(
+        cx,
+        h-20,
+        text="R:0°",
+        fill="black",
+        font=("Helvetica", "16")
+    )
+
+
 # Setup the graphics window
 root = Tk()
 root.geometry("800x480+0+0")
@@ -526,27 +722,27 @@ buttonframe=Frame(root)
 buttonframe.configure(bg='black')
 buttonframe.pack(side=BOTTOM, fill="x")
 
-bigbutton1 = Button(
+camerabutton = Button(
     buttonframe, text="CAMERA", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=camera)
-bigbutton1.pack(side=LEFT)
-bigbutton2 = Button(
+camerabutton.pack(side=LEFT)
+dumpbutton = Button(
     buttonframe, text="CANDUMP", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=candump)
-bigbutton2.pack(side=LEFT)
-maxacbutton = Button(
-    buttonframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
-maxacbutton.pack(side=LEFT)
+dumpbutton.pack(side=LEFT)
+acbutton = Button(
+    buttonframe, text="AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=toggleACpage)
+acbutton.pack(side=LEFT)
 batterybutton = Button(
-    buttonframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
+    buttonframe, text="BATTERY", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=toggleBattpage)
 batterybutton.pack(side=LEFT)
+bigbutton4 = Button(
+    buttonframe, text="", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7)
+bigbutton4.pack(side=LEFT)
 quitbutton = Button(
     buttonframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
 quitbutton.pack(side=LEFT)
 screenoffbutton = Button(
     buttonframe, text="Screen OFF", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
 screenoffbutton.pack(side=LEFT)
-batterybutton = Button(
-    buttonframe, text="BATTERY", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=togglepage)
-batterybutton.pack(side=LEFT)
 
 
 # Setup the text row
@@ -667,16 +863,17 @@ gauge6needle = gauge6.create_arc(coord, start= 150, extent=1, width=7)
 gauge7 = Canvas(gaugeframe, width=200, height=175)
 gauge7.grid(row=2, column=3)
 gauge7.create_oval(fullcoord, fill="white",  width=2)
-gauge7desc = gauge7.create_text(100,120, text="TILT", font=("Helvetica", "16"))
-gauge7label = gauge7.create_text(100,140, text="", font=("Helvetica", "16"))
-gauge7needle = gauge7.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
+#gauge7desc = gauge7.create_text(100,120, text="TILT", font=("Helvetica", "16"))
+#gauge7label = gauge7.create_text(100,140, text="", font=("Helvetica", "16"))
+#gauge7needle = gauge7.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
 
 gauge8 = Canvas(gaugeframe, width=200, height=175)
 gauge8.grid(row=2, column=4)
-gauge8.create_oval(fullcoord, fill="white",  width=2)
-gauge8desc = gauge8.create_text(100,120, text="ROLL", font=("Helvetica", "16"))
-gauge8label = gauge8.create_text(100,140, text="", font=("Helvetica", "16"))
-gauge8needle = gauge8.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
+#gauge8.create_oval(fullcoord, fill="white",  width=2)
+#gauge8desc = gauge8.create_text(100,120, text="ROLL", font=("Helvetica", "16"))
+#gauge8label = gauge8.create_text(100,140, text="", font=("Helvetica", "16"))
+#gauge8needle = gauge8.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
+setuphorizondisplay(gauge8,row=2, column=4)
 
 
 # Setup battery frame
@@ -729,6 +926,36 @@ for i in range(18):
 batterycanvas.pack(fill="both", expand=True)
 
 
+# Setup the AC frame
+acframe = Frame(root)
+acframe.configure(bg='black')
+accanvas = Canvas(
+    acframe,
+    width=800,
+    height=350,
+    bg='black',
+    highlightthickness=0)
+maxacbutton = Button(
+    acframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
+maxacbutton.pack(side=LEFT)
+syncacbutton = Button(
+    acframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
+syncacbutton.pack(side=LEFT)
+actext1dsc = Label(acframe, text="ACMode", font=("Helvetica", "16"))
+actext1dsc.pack(side=LEFT)
+actext1label = Label(acframe, font=("Helvetica", "16"), width=5)
+actext1label.pack(side=LEFT)
+
+actext2dsc = Label(acframe, text="EVAP T", font=("Helvetica", "16"))
+actext2dsc.pack(side=LEFT)
+actext2label = Label(acframe, font=("Helvetica", "16"), width=5)
+actext2label.pack(side=LEFT)
+
+actext3dsc = Label(acframe, text="Recirc", font=("Helvetica", "16"))
+actext3dsc.pack(side=LEFT)
+actext3label = Label(acframe, font=("Helvetica", "16"), width=5)
+actext3label.pack(side=LEFT)
+
 # Queue every single message received from the canbus
 gui_queue = queue.Queue()
 
@@ -758,14 +985,20 @@ notifier = can.Notifier(bus, [newmsg], loop=None)
 
 # Forces tkinter to periodically look for external signals/interrupts and run things while in mainloop()
 def check_signals():
-    # Check if candump has closed and if so reset the button
     global dump
-    if dump:
+    global cam
+    if dump: # Check if candump has closed and if so reset the button
         poll = dump.poll()
         if poll is not None:
             dump.terminate()
             dump = None
-            bigbutton2.config(relief=RAISED, bg="black", activebackground="black")
+            dumpbutton.config(relief=RAISED, bg="black", activebackground="black")
+    if cam: # Check if raspivid has closed and if so reset the button
+        poll = cam.poll()
+        if poll is not None:
+            cam.terminate()
+            cam = None
+            cambutton.config(relief=RAISED, bg="black", activebackground="black")
     root.after(1000, check_signals)
 
 root.after(100, check_signals)
