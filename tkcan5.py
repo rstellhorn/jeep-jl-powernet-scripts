@@ -7,19 +7,35 @@ import can
 import subprocess
 import signal
 import sys
+import argparse
+import queue
+
+
+# Use parser to provide help and command line options
+parser = argparse.ArgumentParser("GUI dashboard canbus data display built for 2018+ Jeep JL/JT/etc... products")
+parser.add_argument('--vcan', action='store_true',
+                    help='Use VCAN0 and VCAN1 for testing')
+parser.add_argument('--fullscreen', '-f', action='store_true',
+                    help='Enable Full Screen')
+args = parser.parse_args()
+
 
 # If using vcan for log playback, change the values in the quotes below
-canIHS = "can0"
-canC = "can1"
+if args.vcan:
+    canIHS = "vcan0"
+    canC = "vcan1"
+else:
+    canIHS = "can0"
+    canC = "can1"
 
+# Initialize variables
 canFilter = list()
-
-battv = None
-rpm = None
-mph = None
-fsstate = True
+shutting_down = False
 cam = None
 dump = None
+batterybars = []
+batterytexts = []
+batterylabelsdrawn = []
 oldpstemp = None
 oldrpm = None
 oldtilt = None
@@ -28,62 +44,33 @@ oldiat = None
 oldcoolant = None
 oldoiltemp = None
 oldoilpres = None
-batterytemps = [0] * 12
+oldboost = None
+oldbaro = 0
+oldbatterytemps = [0] * 18
 battery_page = False
-oldbatterytemps = [None] * 12
-packvoltage = 0
+oldbatterycurrent = None
+packvoltage = None
 cellvoltages = [0.0] * 96
 avgcellvoltage = 0.0
 mincellvoltage = 0.0
 maxcellvoltage = 0.0
 celldelta = 0.0
-livekw = 0.0
-pumpstate = False
-batterycurrentamps = 0.0
-batterybars = []
-batterytexts = []
-batterylabelsdrawn = []
-boostpsi = 0.0
-oldboostpsi = None
-headeritemscreated = False
 
-batterylabels = [
-    "Front L1",
-    "Front L2",
-    "Front R1",
-    "Front R2",
-    "Center L1",
-    "Center L2",
-    "Center R1",
-    "Center R2",
-    "Rear L1",
-    "Rear L2",
-    "Rear R1",
-    "Rear R2"
-]
-
-packmin = 0
-packmax = 0
-packavg = 0
-packdelta = 0
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
-def raw8(x,a):
+def raw8(x,a): #Raw decimal 8 bit
     return(x[a])
 
-def raw16(x,a,b):
+def raw16(x,a,b): #Raw decimal 16 bit
     return((x[a]<<8) + x[b])
 
-def volt(x,a):
+def volt(x,a): #Battery Volts
     return(x[a] / 10)
 
-def temp(x,a):
+def temp(x,a): #Oil temperature in F
     return(round((((x[a] - 40) * (9 / 5)) + 32)))
 
-def batterytemp(x,a):
-    return(round((((x[a] - 40) * (9 / 5)) + 32)))
-
-def tilt(x,a,b):
+def tilt(x,a,b): #Angle in Degrees
     return(round(((x[a]<<8) + x[b] - 2048) / 10))
 
 def rpm(x,a,b):
@@ -94,134 +81,64 @@ def rpm(x,a,b):
 def mph(x,a,b):
     return(round(((x[a]<<8) + x[b]) / 200,1))
 
-def psi(x,a):
+def psi(x,a): #Oil Pressure in PSI
     return(round(((x[a] * 4) * 0.145038)))
 
-def gear(x,a):
-    if x[a] == 0x4E:
-        return('N')
-    elif x[a] == 0x52:
-        return('R')
-    elif x[a] == 0x31:
-        return('1')
-    elif x[a] == 0x32:
-        return('2')
-    elif x[a] == 0x33:
-        return('3')
-    elif x[a] == 0x34:
-        return('4')
-    elif x[a] == 0x35:
-        return('5')
-    elif x[a] == 0x36:
-        return('6')
-    elif x[a] == 0x37:
-        return('7')
-    elif x[a] == 0x38:
-        return('8')
-    elif x[a] == 0x50:
-        return('P')
-    elif x[a] == 0x44:
-        return('D')
-
-def xfer(x,a):
-    if x[a] == 0x00:
-        return('2H')
-    elif x[a] == 0x02:
-        return('N')
-    elif x[a] == 0x10:
-        return('4H')
-    elif x[a] == 0x20:
-        return('N')
-    elif x[a] == 0x40:
-        return('4L')
-    elif x[a] == 0x80:
-        return('XX')
-    else:
-        return('??')
-
-def steer(x,a,b):
+def steer(x,a,b): #Steering angle
     return(((x[a]<<8) + x[b]) - 0x1000)
 
-def pstemp(x,a):
+def pstemp(x,a): #Power Steering pump temperature in F
     return(round(((x[a] * (9 / 5)) + 32)))
 
-def cellvoltage(x,a):
+def boost(x,a,b): #MAP and Boost normalized and combined in PSI
+    mapl = round((x[a] - oldbaro) * 0.145038)
+    mapt = round((((x[b] * 0.8) + 94.6) - oldbaro) * 0.145038)
+    if mapl > 0:
+        return(mapt)
+    else:
+        return(mapl)
+
+def baro(x,a): #Barometer in KPA
+    return(x[a])
+
+def gear(x,a): #Transmission gear selection
+    GEARS = {
+        0x4E: "N",
+        0x52: "R",
+        0x31: "1",
+        0x32: "2",
+        0x33: "3",
+        0x34: "4",
+        0x35: "5",
+        0x36: "6",
+        0x37: "7",
+        0x38: "8",
+        0x50: "P",
+        0x44: "D"
+        }
+    return GEARS.get(x[a], "?")
+
+def xfer(x,a): #Transfer Case gear selection
+    XFERS = {
+        0x00: "2H",
+        0x02: "N",
+        0x10: "4H",
+        0x20: "N",
+        0x40: "4L",
+        0x80: "XX",
+        }
+    return XFERS.get(x[a], "?")
+
+def batterycurrent(x,a): #4xe HV battery pack current
+    raw = ((x[a] << 8) | x[a+1])
+    return(round(((raw * 0.05) - 255) ,1))
+
+def cellvoltage(x,a): #4xe HV Battery pack individual cell voltage
     raw = ((x[a] << 8) | x[a+1])
     return(round(raw / 1000.0, 3))
 
-def batterycurrent(x,a):
 
-    raw = ((x[a] << 8) | x[a+1])
-
-    current = raw * 0.1
-
-    return(round(current,1))
-
-def pumprunning(x,a):
-
-    return((x[a] & 0x01) == 1)
-
-#def manifoldpressure(x,a):
-#
-#    return(x[a])
-def manifoldpressure(x,a):
-
-    raw = ((x[a] << 8) | x[a+1])
-
-    return(round(raw * 0.1, 1))
-
-# Quit
-def quitprogram():
-
-    global notifier
-    global canC
-    global canIHS
-
-    try:
-        notifier.stop()
-    except:
-        pass
-
-    try:
-        canC.shutdown()
-    except:
-        pass
-
-    try:
-        canIHS.shutdown()
-    except:
-        pass
-
-    root.quit()
-    root.destroy()
-
-    sys.exit(0)
-    
 # Display Functions
-def full():
-        print("full screen")
-        global fsstate
-        fsstate = not fsstate
-        root.attributes("-fullscreen", fsstate)
-        if fsstate == True:
-            fullbutton.config(relief=SUNKEN, text="Small")
-            fullbutton.pack()
-        else:
-            fullbutton.config(relief=RAISED, text="Full")
-            fullbutton.pack()
-
-def togglepage():
-    global battery_page
-
-    if battery_page:
-        batteryframe.pack_forget()
-        frame.pack(side=TOP, fill="x")
-        battery_page = False
-    else:
-        frame.pack_forget()
-        batteryframe.pack(side=TOP, fill="both", expand=True)
-        battery_page = True
-
 def newrpm(lrpm):
     global oldrpm
     low_r = 0 # chart low range
@@ -234,22 +151,18 @@ def newrpm(lrpm):
 def newmph(lmph):
     if str(lmph) != text1label["text"]:
       text1label["text"] = str(lmph)
-      text1label.pack()
 
 def newbattv(lbattv):
     if str(lbattv) != text2label["text"]:
       text2label["text"] = str(lbattv)
-      text2label.pack()
 
 def newgear(lgear):
     if str(lgear) != text3label["text"]:
         text3label["text"] = str(lgear)
-        text3label.pack()
 
 def newxfer(lxfer):
     if str(lxfer) != text4label["text"]:
         text4label["text"] = str(lxfer)
-        text4label.pack()
 
 def newpstemp(lpstemp):
     global oldpstemp
@@ -279,7 +192,6 @@ def newcoolant(lcoolant):
     hi_r = 300 # chart hi range
     if str(lcoolant) != text7label["text"]:
       text7label["text"] = str(lcoolant)
-      text7label.pack()
       coolanttempangle = (120 * (hi_r - lcoolant) / (hi_r - low_r) + 30)
       gauge1.itemconfig(gauge1needle,start = coolanttempangle)
       gauge1.grid()
@@ -335,308 +247,106 @@ def newroll(lroll):
        else:
                gauge8.itemconfig(gauge8needle, fill="green")
 
+def newboost(lboost):
+    global oldboost
+    low_r = -35 # chart low range
+    hi_r = 35 # chart hi range
+    if lboost != oldboost:
+      text10label["text"] = str(lboost)
+      boosttempangle = (120 * (hi_r - lboost) / (hi_r - low_r) + 30)
+      gauge4.itemconfig(gauge4needle,start = boosttempangle)
+      gauge4.grid()
+      oldboost = lboost
+
+def newbaro(lbaro):
+    global oldbaro
+    oldbaro = lbaro
+
 def newbatterytemp(index, value):
-
     global oldbatterytemps
-    global packmin
-    global packmax
-    global packavg
-    global packdelta
-
+    global packtempmin
+    global packtempmax
+    global packtempavg
+    global packtempdelta
     if oldbatterytemps[index] != value:
-
-        batterytemps[index] = value
         oldbatterytemps[index] = value
-
-        validtemps = [t for t in batterytemps if t > 0]
-
-        if len(validtemps) > 0:
-
+        validtemps = [t for t in oldbatterytemps if t > 0]
+        batterycanvas.itemconfig(
+            batterytexts[index],
+            text=f"{value}°")
+        low_t = 50
+        high_t = 160
+        clipped = max(low_t, min(high_t, value))
+        height = int((clipped - low_t) * 2)
+        color = "green"
+        if value > 89:
+            color = "yellow"
+        if value > 99:
+            color = "orange"
+        if value > 109:
+            color = "red"
+        x = 20 + (index * 41)
+        batterycanvas.coords(
+            batterybars[index],
+            x,
+            320 - height,
+            x + 30,
+            320)
+        batterycanvas.itemconfig(
+            batterybars[index],
+            fill=color)
+        batterycanvas.coords(
+            batterytexts[index],
+            x + 22,
+            305 - height)
+        if len(validtemps) == 18:
             packmin = min(validtemps)
             packmax = max(validtemps)
             packavg = round(sum(validtemps) / len(validtemps), 1)
             packdelta = packmax - packmin
+            text5label["text"] = str(packmax)
 
-        drawbatterytemps()
+def newbatterykw():
+    global oldbatterycurrent
+    global packvoltage
+    if packvoltage is None or oldbatterycurrent is None:
+        return
+    livekw = round(
+        (packvoltage * oldbatterycurrent) / 1000,
+        1)
+    text6label["text"] = str(livekw)
+
+def newbatterycurrent(lbatterycurrent):
+    global oldbatterycurrent
+    if lbatterycurrent != oldbatterycurrent:
+        oldbatterycurrent = lbatterycurrent
+        newbatterykw()
 
 def newcellvoltage(index, value):
-
     global avgcellvoltage
     global packvoltage
     global mincellvoltage
     global maxcellvoltage
-    global celldelta
+    if cellvoltages[index] is not value:
+        cellvoltages[index] = value
+        validcells = [
+            v for v in cellvoltages
+            if 2.0 < v < 4.5
+            ]
+        if len(validcells) > 0:
+            avgcellvoltage = round(
+                sum(validcells) / len(validcells),
+                3)
+            mincellvoltage = round(min(validcells), 3)
+            maxcellvoltage = round(max(validcells), 3)
+        if len(validcells) == 96:
+            lpackvoltage = round(
+                sum(validcells),
+                1)
+            if packvoltage is not lpackvoltage:
+                packvoltage = lpackvoltage
+                newbatterykw()
 
-    cellvoltages[index] = value
-
-    validcells = [
-    v for v in cellvoltages
-    if 2.5 < v < 4.5
-    ]
-
-    if len(validcells) > 0:
-
-        avgcellvoltage = round(
-            sum(validcells) / len(validcells),
-            3)
-
-        packvoltage = round(
-            sum(validcells),
-            1)
-
-        mincellvoltage = round(min(validcells), 3)
-
-        maxcellvoltage = round(max(validcells), 3)
-
-        packvoltagelabel.config(
-            text=f"PACK {packvoltage}V")
-
-        avgcelllabel.config(
-            text=f"AVG {avgcellvoltage}V")
-
-def newboost(v):
-
-    global boostpsi
-    global oldboostpsi
-    print(f"MAP={v} kPa")
-
-
-    boostpsi = round(
-        ((v - 127) * 20.0) / 128.0,
-        1)
-    low_r = -15
-    hi_r = 25
-
-    if boostpsi < low_r:
-        boostpsi = low_r
-
-    if boostpsi > hi_r:
-        boostpsi = hi_r
-
-    if boostpsi != oldboostpsi:
-
-        boostpsiangle = (
-            120 * (hi_r - boostpsi)
-            / (hi_r - low_r)
-            + 30)
-
-        gauge4.itemconfig(
-            gauge4needle,
-            start=boostpsiangle)
-
-        color = "green"
-
-        if boostpsi < 0:
-            color = "cyan"
-
-        if boostpsi > 10:
-            color = "yellow"
-
-        if boostpsi > 18:
-            color = "red"
-
-        gauge4.itemconfig(
-            gauge4needle,
-            fill=color)
-        #print(f"MAP={boostpsi} psi")
-        oldboostpsi = boostpsi
-
-def setupbatterydisplay():
-
-    global headeritemscreated
-
-    if headeritemscreated:
-        return
-
-    batterycanvas.create_text(
-        400,
-        20,
-        text="4xe HV Battery Temperatures",
-        fill="white",
-        font=("Helvetica", "20", "bold"))
-
-    for i in range(12):
-
-        x = 20 + (i * 62)
-
-        bar = batterycanvas.create_rectangle(
-            x,
-            280,
-            x + 45,
-            320,
-            fill="green",
-            outline="white",
-            width=2)
-
-        batterybars.append(bar)
-
-        temptext = batterycanvas.create_text(
-            x + 22,
-            240,
-            text="0°",
-            fill="white",
-            font=("Helvetica", "10", "bold"))
-
-        batterytexts.append(temptext)
-
-        label = batterycanvas.create_text(
-            x + 22,
-            320,
-            text=batterylabels[i],
-            fill="gray80",
-            angle=45,
-            font=("Helvetica", "8"))
-
-        batterylabelsdrawn.append(label)
-
-    headeritemscreated = True
-
-    global mintext
-    global avgtext
-    global maxtext
-    global deltatext
-
-    mintext = batterycanvas.create_text(
-        120,
-        60,
-        text="MIN",
-        fill="cyan",
-        font=("Helvetica", "14", "bold"))
-
-    avgtext = batterycanvas.create_text(
-        300,
-        60,
-        text="AVG",
-        fill="white",
-        font=("Helvetica", "14", "bold"))
-
-    maxtext = batterycanvas.create_text(
-        500,
-        60,
-        text="MAX",
-        fill="orange",
-        font=("Helvetica", "14", "bold"))
-
-    deltatext = batterycanvas.create_text(
-        680,
-        60,
-        text="DELTA",
-        fill="green",
-        font=("Helvetica", "14", "bold"))
-    
-def drawbatterytemps():
-
-    batterycanvas.itemconfig(
-        mintext,
-        text=f"MIN: {packmin}°")
-
-    batterycanvas.itemconfig(
-        avgtext,
-        text=f"AVG: {packavg}°")
-
-    batterycanvas.itemconfig(
-        maxtext,
-        text=f"MAX: {packmax}°")
-
-    batterycanvas.itemconfig(
-        deltatext,
-        text=f"DELTA: {packdelta}°")
-
-    for i, temp in enumerate(batterytemps):
-
-        low_t = 50
-        high_t = 160
-
-        clipped = max(low_t, min(high_t, temp))
-
-        height = int((clipped - low_t) * 2)
-
-        color = "green"
-
-        if temp > 89:
-            color = "yellow"
-
-        if temp > 99:
-            color = "orange"
-
-        if temp > 109:
-            color = "red"
-
-        x = 20 + (i * 62)
-
-        batterycanvas.coords(
-            batterybars[i],
-            x,
-            320 - height,
-            x + 45,
-            320)
-
-        batterycanvas.itemconfig(
-            batterybars[i],
-            fill=color)
-
-        batterycanvas.itemconfig(
-            batterytexts[i],
-            text=f"{temp}°")
-
-        batterycanvas.coords(
-            batterytexts[i],
-            x + 22,
-            305 - height)
-    kwcolor = "green"
-
-    if livekw > 40:
-        kwcolor = "yellow"
-
-    if livekw > 80:
-        kwcolor = "red"
-
-    if livekw < 0:
-        kwcolor = "cyan"
-        
-    batterycanvas.create_text(
-    120,
-    90,
-    text=f"{livekw} kW",
-    fill=kwcolor,
-    font=("Helvetica", "18", "bold"))
-
-    pumpcolor = "red"
-    pumptext = "PUMP OFF"
-
-    if pumpstate:
-        pumpcolor = "cyan"
-        pumptext = "PUMP ON"
-
-    batterycanvas.create_oval(
-        620,
-        75,
-        650,
-        105,
-        fill=pumpcolor)
-
-    batterycanvas.create_text(
-        720,
-        90,
-        text=pumptext,
-        fill="white",
-        font=("Helvetica", "16", "bold"))
-
-
-def newbatterycurrent(v):
-    global batterycurrentamps
-    global livekw
-    batterycurrentamps = v
-    livekw = round(
-        (packvoltage * batterycurrentamps) / 1000,
-        1)
-    drawbatterytemps()
-    #print(f"current={v} a")
-
-def newpumpstate(v):
-    global pumpstate
-    pumpstate = v
-    drawbatterytemps()
 
 # list of can ID's and details to monitor in this order:
 # (ID, Channel, [("name", process, type, function, byte1, byte2)])
@@ -650,11 +360,12 @@ monitorlist=[(0x2C2,
              (0x322,
               canIHS,
               [("RPM",rpm,newrpm,0,1),
-               ("MPH",mph,newmph,2,3)]),          
+               ("MPH",mph,newmph,2,3)]),
              (0x127,
               canC,
               [("IAT",temp,newiat,0),
-               ("Coolant",temp,newcoolant,1)]),
+               ("Coolant",temp,newcoolant,1),
+               ("BARO",baro,newbaro,2)]),
              (0x13D,
               canC,
               [("Oil Temp",temp,newoiltemp,3),
@@ -662,83 +373,73 @@ monitorlist=[(0x2C2,
              (0x093,
               canC,
               [("Gear",gear,newgear,2)]),
-             (0x081,
-              canC,
-              [("MAP",raw8,newboost,4)]),
              (0x277,
               canC,
               [("Transfer",xfer,newxfer,0)]),
              (0x128,
               canC,
               [("PS Temp",pstemp,newpstemp,1)]),
+              (0x081,
+              canC,
+              [("MAP",boost,newboost,2,4)]),
              (0x4A0,
               canC,
-              [("BattTemp0", batterytemp, lambda v: newbatterytemp(0, v), 0),
-               ("BattTemp1", batterytemp, lambda v: newbatterytemp(1, v), 1),
-               ("BattTemp2", batterytemp, lambda v: newbatterytemp(2, v), 2),
-               ("BattTemp3", batterytemp, lambda v: newbatterytemp(3, v), 3),
-               ("BattTemp4", batterytemp, lambda v: newbatterytemp(4, v), 4),
-               ("BattTemp5", batterytemp, lambda v: newbatterytemp(5, v), 5)]),
-
+              [("BattTemp0", temp, lambda v: newbatterytemp(0, v), 0),
+               ("BattTemp1", temp, lambda v: newbatterytemp(1, v), 1),
+               ("BattTemp2", temp, lambda v: newbatterytemp(2, v), 2),
+               ("BattTemp3", temp, lambda v: newbatterytemp(3, v), 3),
+               ("BattTemp4", temp, lambda v: newbatterytemp(4, v), 4),
+               ("BattTemp5", temp, lambda v: newbatterytemp(5, v), 5)]),
              (0x4A1,
               canC,
-              [("BattTemp6", batterytemp, lambda v: newbatterytemp(6, v), 0),
-               ("BattTemp7", batterytemp, lambda v: newbatterytemp(7, v), 1),
-               ("BattTemp8", batterytemp, lambda v: newbatterytemp(8, v), 2),
-               ("BattTemp9", batterytemp, lambda v: newbatterytemp(9, v), 3),
-               ("BattTemp10", batterytemp, lambda v: newbatterytemp(10, v), 4),
-               ("BattTemp11", batterytemp, lambda v: newbatterytemp(11, v), 5)],
-              ),
-             (0x07C,
+              [("BattTemp6", temp, lambda v: newbatterytemp(6, v), 0),
+               ("BattTemp7", temp, lambda v: newbatterytemp(7, v), 1),
+               ("BattTemp8", temp, lambda v: newbatterytemp(8, v), 2),
+               ("BattTemp9", temp, lambda v: newbatterytemp(9, v), 3),
+               ("BattTemp10", temp, lambda v: newbatterytemp(10, v), 4),
+               ("BattTemp11", temp, lambda v: newbatterytemp(11, v), 5)]),
+             (0x4A2,
               canC,
-              [("BatteryCurrent",batterycurrent,newbatterycurrent,4)])
+              [("BattTemp12", temp, lambda v: newbatterytemp(12, v), 0),
+               ("BattTemp13", temp, lambda v: newbatterytemp(13, v), 1),
+               ("BattTemp14", temp, lambda v: newbatterytemp(14, v), 4),
+               ("BattTemp15", temp, lambda v: newbatterytemp(15, v), 5),
+               ("BattTemp16", temp, lambda v: newbatterytemp(16, v), 6),
+               ("BattTemp17", temp, lambda v: newbatterytemp(17, v), 7)]),
+             (0x485,
+              canC,
+              [("BatteryCurrent",batterycurrent,newbatterycurrent,0)])
              ]
 for canid in range(0x487, 0x49F):
-
     basecell = (canid - 0x487) * 4
-
     monitorlist.append(
-
         (canid,
          canC,
          [
-
           (f"Cell{basecell}",
            cellvoltage,
            lambda v, i=basecell:
                newcellvoltage(i, v),
            0),
-
           (f"Cell{basecell+1}",
            cellvoltage,
            lambda v, i=basecell+1:
                newcellvoltage(i, v),
            2),
-
-          (f"Cell{basecell+2}",
-           cellvoltage,
-           lambda v, i=basecell+2:
-               newcellvoltage(i, v),
-           4),
-
-          (f"Cell{basecell+3}",
-           cellvoltage,
-           lambda v, i=basecell+3:
-               newcellvoltage(i, v),
-           6)
-
+            (f"Cell{basecell+2}",
+             cellvoltage,
+             lambda v, i=basecell+2:
+                newcellvoltage(i, v),
+             4),
+            (f"Cell{basecell+3}",
+             cellvoltage,
+             lambda v, i=basecell+3:
+                 newcellvoltage(i, v),
+             6)
          ]))
 
-# Buttons
-def canwakeup():
-  wakeup = can.Message(data=[0x07, 0, 0, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x2D3, channel=CanIHS)
-  print(wakeup)
-  bus.send(wakeup, timeout=1)
 
-def radioreboot():
-  radiorebootcmd = can.Message(data=[0x02, 0x11, 0x01, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x7BF, channel=canIHS)
-  bus.send(radiorebootcmd, timeout=1)
-
+# Button commands
 def maxac():
   maxaccmd = can.Message(data=[0x80, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(maxaccmd, timeout=1)
@@ -747,96 +448,108 @@ def synchvac():
   synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(synchvaccmd, timeout=1)
 
+def togglepage():
+    global battery_page
+
+    if battery_page:
+        batteryframe.pack_forget()
+        gaugeframe.pack(side=TOP, fill="x")
+        battery_page = False
+    else:
+        gaugeframe.pack_forget()
+        batteryframe.pack(side=TOP, fill="both", expand=True)
+        battery_page = True
+
+# Subprocess functions - executes external commands
 def blankscreen():
     subprocess.call(['xscreensaver-command', '-activate'])
-
-def callback():
-    topframe.quit()
 
 def camera():
     global cam
     if cam:
         cam.terminate()
         cam = None
-        frame.pack(side=TOP, fill="x")
+        gaugeframe.pack(side=TOP, fill="x")
     else:
         cam = subprocess.Popen(["raspivid", "-t", "0", "-v", "-w", "800", "-h", "480", "-op", "200"])
         camstatus = cam.poll()
         if camstatus is None:
-                frame.pack_forget()
-                batteryframe.pack_forget()
+                gaugeframe.pack_forget()
 
 def candump():
     global dump
     if dump:
         dump.terminate()
         dump = None
+        bigbutton2.config(relief=RAISED, bg="black", activebackground="black")
     else:
-        dump = subprocess.Popen(["candump", "-l", "any"])
+        dump = subprocess.Popen(["candump", "-l", "any", "-n", "50000", "-T", "1000"])
+        bigbutton2.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
 
 
-def button1():
-    bigbutton1 = Button(
-    topframe, text="CAMERA", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=camera)
-    bigbutton1.pack(side=LEFT)
-def button2():
-    bigbutton2 = Button(
-        topframe, text="Wake Up", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=canwakeup)
-    bigbutton2.pack(side=LEFT)
-def button3():
-    maxacbutton = Button(
-        topframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
-    maxacbutton.pack(side=LEFT)
-def button4():
-    synchvacbutton = Button(
-        topframe, text="Sync", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
-    synchvacbutton.pack(side=LEFT)
-def button5():
-     quitbutton = Button(
-     topframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
-     quitbutton.pack(side=LEFT)
-def button6():
-    screenoffbutton = Button(
-        topframe, text="Screen OFF", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
-    screenoffbutton.pack(side=LEFT)
-def button7():
-    radiorebootbutton = Button(
-        topframe, text="Reboot", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=radioreboot)
-    radiorebootbutton.pack(side=LEFT)
-
-def button8():
-    batterybutton = Button(
-        topframe,
-        text="Battery",
-        fg="red",
-        activeforeground="red",
-        bg="black",
-        activebackground="black",
-        font=("Helvetica", "16"),
-        height=2,
-        width=7,
-        command=togglepage)
-
-    batterybutton.pack(side=LEFT)
+# Correctly and cleanly close this program
+def quitprogram():
+    global notifier
+    global bus
+    global dump
+    global cam
+    global root
+    global shutting_down
+    global queue_after
+    shutting_down = True
+    notifier.stop(timeout = 1)
+    bus.shutdown()
+    root.after_cancel(queue_after)
+    if dump:
+        dump.terminate()
+    if cam:
+        cam.terminate()
+    try:
+        root.quit()
+    except:
+        root.destroy()
+    sys.exit(0)
 
 
+# Setup the graphics window
 root = Tk()
 root.geometry("800x480+0+0")
 root.title("This is Root")
-root.protocol("WM_DELETE_WINDOW", callback)
-root.attributes("-fullscreen", fsstate)
+root.protocol("WM_DELETE_WINDOW", quitprogram)
+if args.fullscreen:
+    root.attributes("-fullscreen", True)
 root.configure(bg='black')
 
-topframe=Frame(root)
-topframe.configure(bg='black')
-topframe.pack(side=BOTTOM, fill="x")
-button1()
-button8()
-button3()
-button4()
-button5()
-button6()
 
+# Setup the button row
+buttonframe=Frame(root)
+buttonframe.configure(bg='black')
+buttonframe.pack(side=BOTTOM, fill="x")
+
+bigbutton1 = Button(
+    buttonframe, text="CAMERA", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=camera)
+bigbutton1.pack(side=LEFT)
+bigbutton2 = Button(
+    buttonframe, text="CANDUMP", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=candump)
+bigbutton2.pack(side=LEFT)
+maxacbutton = Button(
+    buttonframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
+maxacbutton.pack(side=LEFT)
+batterybutton = Button(
+    buttonframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
+batterybutton.pack(side=LEFT)
+quitbutton = Button(
+    buttonframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
+quitbutton.pack(side=LEFT)
+screenoffbutton = Button(
+    buttonframe, text="Screen OFF", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
+screenoffbutton.pack(side=LEFT)
+batterybutton = Button(
+    buttonframe, text="BATTERY", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=togglepage)
+batterybutton.pack(side=LEFT)
+
+
+# Setup the text row
 textframe=Frame(root)
 textframe.pack(side=BOTTOM, fill="x")
 
@@ -852,28 +565,23 @@ text2label.pack(side=LEFT)
 
 text3dsc = Label(textframe, text="Gear", font=("Helvetica", "16"))
 text3dsc.pack(side=LEFT)
-text3label = Label(textframe, font=("Helvetica", "16"), width=3)
+text3label = Label(textframe, font=("Helvetica", "16"), width=5)
 text3label.pack(side=LEFT)
 
 text4dsc = Label(textframe, text="Xfer", font=("Helvetica", "16"))
 text4dsc.pack(side=LEFT)
-text4label = Label(textframe, font=("Helvetica", "16"), width=3)
+text4label = Label(textframe, font=("Helvetica", "16"), width=5)
 text4label.pack(side=LEFT)
 
-packvoltagelabel = Label(
-    textframe,
-    text="PACK ---.-V",
-    font=("Helvetica", "14", "bold"))
+text5dsc = Label(textframe, text="PMax", font=("Helvetica", "16"))
+text5dsc.pack(side=LEFT)
+text5label = Label(textframe, font=("Helvetica", "16"), width=5)
+text5label.pack(side=LEFT)
 
-packvoltagelabel.pack(side=LEFT)
-
-
-avgcelllabel = Label(
-    textframe,
-    text="AVG -.---V",
-    font=("Helvetica", "14", "bold"))
-
-avgcelllabel.pack(side=LEFT)
+text6dsc = Label(textframe, text="Live KW", font=("Helvetica", "16"))
+text6dsc.pack(side=LEFT)
+text6label = Label(textframe, font=("Helvetica", "16"), width=5)
+text6label.pack(side=LEFT)
 
 textframe2=Frame(root)
 textframe2.pack(side=BOTTOM, fill="x")
@@ -893,7 +601,7 @@ text9dsc.pack(side=LEFT)
 text9label = Label(textframe2, font=("Helvetica", "16"), width=5)
 text9label.pack(side=LEFT)
 
-text10dsc = Label(textframe2, text="", font=("Helvetica", "16"))
+text10dsc = Label(textframe2, text="MAP", font=("Helvetica", "16"))
 text10dsc.pack(side=LEFT)
 text10label = Label(textframe2, font=("Helvetica", "16"), width=5)
 text10label.pack(side=LEFT)
@@ -909,122 +617,182 @@ text12label = Label(textframe2, font=("Helvetica", "16"), width=5)
 text12label.pack(side=LEFT)
 
 
-frame = Frame(root)
-frame.pack(side=TOP, fill="x")
-frame.configure(bg='black')
+# Setup the gauge frame
+gaugeframe = Frame(root)
+gaugeframe.pack(side=TOP, fill="x")
+gaugeframe.configure(bg='black')
 
-coord = 0, 0, 200, 350 #define the size of the gaug
+coord = 0, 0, 200, 350 # define the size of the gauge
 fullcoord = 0, 0, 175, 175
 
-gauge1 = Canvas(frame, width=200, height=175)
+gauge1 = Canvas(gaugeframe, width=200, height=175)
 gauge1.grid(row=1, column=1)
 gauge1.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge1desc = gauge1.create_text(100,120, text="CoolT", font=("Helvetica", "16"))
 gauge1needle = gauge1.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge2 = Canvas(frame, width=200, height=175)
+gauge2 = Canvas(gaugeframe, width=200, height=175)
 gauge2.grid(row=1, column=2)
 gauge2.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge2desc = gauge2.create_text(100,120, text="PSTEMP", font=("Helvetica", "16"))
 gauge2label = gauge2.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge2needle = gauge2.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge3 = Canvas(frame, width=200, height=175)
+gauge3 = Canvas(gaugeframe, width=200, height=175)
 gauge3.grid(row=1, column=3)
 gauge3.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge3desc = gauge3.create_text(100,120, text="IAT", font=("Helvetica", "16"))
 gauge3label = gauge3.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge3needle = gauge3.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge4 = Canvas(frame, width=200, height=175)
+gauge4 = Canvas(gaugeframe, width=200, height=175)
 gauge4.grid(row=1, column=4)
 gauge4.create_arc(coord, start=30, extent=120, fill="white",  width=2)
-gauge4desc = gauge4.create_text(100,120, text="BoostPSI", font=("Helvetica", "16"))
+gauge4desc = gauge4.create_text(100,120, text="MAP", font=("Helvetica", "16"))
 gauge4needle = gauge4.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge5 = Canvas(frame, width=200, height=175)
+gauge5 = Canvas(gaugeframe, width=200, height=175)
 gauge5.grid(row=2, column=1)
 gauge5.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge5desc = gauge5.create_text(100,120, text="OilTemp", font=("Helvetica", "16"))
 gauge5needle = gauge5.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge6 = Canvas(frame, width=200, height=175)
+gauge6 = Canvas(gaugeframe, width=200, height=175)
 gauge6.grid(row=2, column=2)
 gauge6.create_arc(coord, start=30, extent=120, fill="white",  width=2)
 gauge6desc = gauge6.create_text(100,120, text="OilPres", font=("Helvetica", "16"))
 gauge6label = gauge6.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge6needle = gauge6.create_arc(coord, start= 150, extent=1, width=7)
 
-gauge7 = Canvas(frame, width=200, height=175)
+gauge7 = Canvas(gaugeframe, width=200, height=175)
 gauge7.grid(row=2, column=3)
 gauge7.create_oval(fullcoord, fill="white",  width=2)
 gauge7desc = gauge7.create_text(100,120, text="TILT", font=("Helvetica", "16"))
 gauge7label = gauge7.create_text(100,140, text="", font=("Helvetica", "16"))
 gauge7needle = gauge7.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
 
-gauge8 = Canvas(frame, width=200, height=175)
+gauge8 = Canvas(gaugeframe, width=200, height=175)
 gauge8.grid(row=2, column=4)
 gauge8.create_oval(fullcoord, fill="white",  width=2)
 gauge8desc = gauge8.create_text(100,120, text="ROLL", font=("Helvetica", "16"))
 gauge8label = gauge8.create_text(100,140, text="", font=("Helvetica", "16"))
 gauge8needle = gauge8.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
 
-kwcolor = "green"
 
-if livekw > 20:
-    kwcolor = "yellow"
-
-if livekw > 50:
-    kwcolor = "red"
-
-if livekw < -10:
-    kwcolor = "cyan"
-
+# Setup battery frame
 batteryframe = Frame(root)
 batteryframe.configure(bg='black')
-
 batterycanvas = Canvas(
     batteryframe,
     width=800,
     height=350,
     bg='black',
     highlightthickness=0)
-
-
-setupbatterydisplay()
+batterylabels = [
+    label
+    for canid, _, signals in monitorlist
+    if 0x4A0 <= canid <= 0x4A2
+    for label, _, _, _ in signals
+]
+batterycanvas.create_text(
+        400,
+        20,
+        text="4xe HV Battery Temperatures",
+        fill="white",
+        font=("Helvetica", "20", "bold"))
+for i in range(18):
+        x = 20 + (i * 41)
+        bar = batterycanvas.create_rectangle(
+            x,
+            280,
+            x + 30,
+            320,
+            fill="green",
+            outline="white",
+            width=2)
+        batterybars.append(bar)
+        temptext = batterycanvas.create_text(
+            x + 14,
+            240,
+            text="0°",
+            fill="white",
+            font=("Helvetica", "10", "bold"))
+        batterytexts.append(temptext)
+        label = batterycanvas.create_text(
+            x + 14,
+            320,
+            text=batterylabels[i],
+            fill="gray80",
+            angle=45,
+            font=("Helvetica", "8"))
+        batterylabelsdrawn.append(label)
 batterycanvas.pack(fill="both", expand=True)
 
-# cheat
-def wrapper(msg,name,func,output,*args):
-    output(func(msg,*args))
 
+# Queue every single message received from the canbus
+gui_queue = queue.Queue()
 
-# Process every single message received from the canbus
 def newmsg(msg):
+  if shutting_down:
+   return
   for monitor in monitorlist:
    if msg.arbitration_id == monitor[0] and msg.channel == monitor[1]:
     for detail in monitor[2]:
-     wrapper((msg.data),*detail)
+     name = detail[0]
+     decoder = detail[1]
+     callbk = detail[2]
+     args = detail[3:]
+     value = decoder(msg.data, *args)
+     gui_queue.put((callbk, value))
 
-# Build the can filter list
+
+# Build out the can bus filtering list. only receive messages that we care about.
 for monitor in monitorlist:
- # build out the can bus filtering list. only receive messages that we care about.
  canFilter.append({"can_id": monitor[0], "can_mask": 0xFFF, "can_channel": monitor[1]})
 
 
-# define the can bus
+# Define the can bus
 bus = can.interface.Bus('', interface='socketcan', filter=canFilter)
-Notifier = can.Notifier(bus, [newmsg], loop=None)
+notifier = can.Notifier(bus, [newmsg], loop=None)
 
 
-root.mainloop()
-bus.shutdown()
-if cam:
-    cam.terminate()
-if dump:
-    dump.terminate()
+# Forces tkinter to periodically look for external signals/interrupts and run things while in mainloop()
+def check_signals():
+    # Check if candump has closed and if so reset the button
+    global dump
+    if dump:
+        poll = dump.poll()
+        if poll is not None:
+            dump.terminate()
+            dump = None
+            bigbutton2.config(relief=RAISED, bg="black", activebackground="black")
+    root.after(1000, check_signals)
 
-root.mainloop()
-bus.shutdown()
-if cam:
-    cam.terminate()
+root.after(100, check_signals)
+
+
+# Process all of the queued the can messages inside tkinter mainloop()
+def process_gui_queue():
+    global queue_after
+    while True:
+        try:
+            callbk, value = gui_queue.get_nowait()
+        except queue.Empty:
+            break
+        try:
+            callbk(value)
+        except Exception as e:
+            print(f"GUI callback {callbk.__name__} failed: {e}")
+    queue_after = root.after(10, process_gui_queue)
+
+queue_after = root.after(10, process_gui_queue)
+
+
+# Start the tkinter mainloop and shutdown cleanly when closed
+try:
+    root.mainloop()
+except KeyboardInterrupt:
+    print("\nKeyboardInterrupt detected. Closing GUI safely...")
+finally:
+    quitprogram()
+
