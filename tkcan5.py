@@ -39,6 +39,7 @@ batterytexts = []
 batterylabelsdrawn = []
 oldpstemp = None
 oldrpm = None
+oldxfer = None
 oldtilt = 0.0
 oldroll = 0.0
 oldiat = None
@@ -64,7 +65,7 @@ rolltext = None
 filteredRoll = 0.0
 filteredTilt = 0.0
 oldcurrentgear = None
-oldinputspeed = None
+oldinputrpm = None
 oldacmode = None
 oldevaptemp = None
 oldrecirc = None
@@ -128,7 +129,21 @@ def gear(x,a): #Transmission gear selection
         0x50: "P",
         0x44: "D"
         }
-    return GEARS.get(x[a], "?")
+    return GEARS.get(x[a], f"{x[a]:x}")
+
+def curgear(x,a): #Transmission gear selection
+    GEARS = {
+        0x11: "1",
+        0x22: "2",
+        0x33: "3",
+        0x44: "4",
+        0x55: "5",
+        0x66: "6",
+        0x77: "7",
+        0x88: "8",
+        0xDD: "P"
+        }
+    return GEARS.get(x[a], f"{x[a]:x}")
 
 def xfer(x,a): #Transfer Case gear selection
     XFERS = {
@@ -139,7 +154,7 @@ def xfer(x,a): #Transfer Case gear selection
         0x40: "4L",
         0x80: "XX",
         }
-    return XFERS.get(x[a], "?")
+    return XFERS.get(x[a], f"{x[a]:x}")
 
 def batterycurrent(x,a): #4xe HV battery pack current
     raw = ((x[a] << 8) | x[a+1])
@@ -175,6 +190,15 @@ def newrpm(lrpm):
       lrpm = 0
     if lrpm != oldrpm:
       oldrpm = lrpm
+      cx = 100
+      cy = 87.5
+      radius = 85
+      angle = math.radians(-210 + (lrpm/7000.0)*240)
+      x = cx + (radius-22)*math.cos(angle)
+      y = cy + (radius-22)*math.sin(angle)
+      tachometer.coords(engineneedle,
+           cx,cy,
+           x,y)
 
 def newmph(lmph):
     if str(lmph) != text1label["text"]:
@@ -189,8 +213,9 @@ def newgear(lgear):
         text3label["text"] = str(lgear)
 
 def newxfer(lxfer):
-    if str(lxfer) != text4label["text"]:
-        text4label["text"] = str(lxfer)
+    global oldxfer
+    if lxfer != oldxfer:
+        oldxfer = lxfer
 
 def newpstemp(lpstemp):
     global oldpstemp
@@ -284,11 +309,21 @@ def newcurrentgear(lcurrentgear):
     global oldcurrentgear
     if oldcurrentgear != lcurrentgear:
         oldcurrentgear = lcurrentgear
+        text4label["text"] = str(lcurrentgear)
 
-def newinputspeed(linputspeed):
-    global oldinputspeed
-    if oldinputspeed != linputspeed:
-        oldinputspeed = linputspeed
+def newinputrpm(linputrpm):
+    global oldinputrpm
+    if oldinputrpm != linputrpm:
+        oldinputrpm = linputrpm
+        cx = 100
+        cy = 87.5
+        radius = 85
+        angle = math.radians(-210 + (linputrpm/7000.0)*240)
+        x = cx + (radius-30)*math.cos(angle)
+        y = cy + (radius-30)*math.sin(angle)
+        tachometer.coords(transneedle,
+             cx,cy,
+             x,y)
 
 def newbatterytemp(index, value):
     global oldbatterytemps
@@ -500,10 +535,10 @@ monitorlist=[(0x2C2,
              (0x485,
               canC,
               [("BatteryCurrent",batterycurrent,newbatterycurrent,0)]),
-             (0x285,
+             (0x085,
               canC,
-              [("CurrentGear",gear,newcurrentgear,1),
-               ("InputSpeed",rpm,newinputspeed,5,6)]),
+              [("CurrentGear",curgear,newcurrentgear,1),
+               ("InputRPM",rpm,newinputrpm,5,6)]),
              (0x230,
               canIHS,
               [("ACmode",acmode,newacmode,0),
@@ -706,6 +741,68 @@ def setuphorizondisplay(parent, row, column): # artificial horizon for displayin
         font=("Helvetica", "16")
     )
 
+def setuptachometer(parent, row, column): # Tachometer
+    global tachometer
+    global engineneedle
+    global transneedle
+    w = 200
+    h = 175
+    cx = w / 2
+    cy = h / 2
+    radius = 85
+    tachometer = Canvas(parent,
+        width=w,
+        height=h)
+    tachometer.grid(row=row, column=column)
+    tachometer.create_oval(cx-radius, cy-radius, # outer ring
+        cx+radius, cy+radius,
+        outline="black",
+        fill="white",
+        width=2)
+    for rpm in range(0, 7001, 500): # tick marks
+        angle = math.radians(-210 + (rpm/7000.0)*240)
+        x1 = cx + (radius-6)*math.cos(angle)
+        y1 = cy + (radius-6)*math.sin(angle)
+        if rpm % 1000 == 0:
+            x2 = cx + (radius-18)*math.cos(angle)
+            y2 = cy + (radius-18)*math.sin(angle)
+        else:
+            x2 = cx + (radius-12)*math.cos(angle)
+            y2 = cy + (radius-12)*math.sin(angle)
+        tachometer.create_line(x1,y1,x2,y2,
+                       fill="black",
+                       width=2)
+    for rpm in range(0,8): # labels
+        angle = math.radians(-210 + rpm*(240/7))
+        tx = cx + (radius-32)*math.cos(angle)
+        ty = cy + (radius-32)*math.sin(angle)
+        tachometer.create_text(tx,
+             ty,
+             text=str(rpm),
+             fill="black",
+             font=("Arial",10,"bold"))
+    tachometer.create_text(cx,
+        cy+48,
+        text="RPM x1000",
+        fill="black",
+        font=("Arial",10))
+    engineneedle = tachometer.create_line( # engine RPM needle
+        cx, cy,
+        cx,
+        cy-radius+20,
+        fill="red",
+        width=4,
+        capstyle=ROUND
+        )
+    transneedle = tachometer.create_line( # transmission input RPM needle
+        cx, cy,
+        cx,
+        cy-radius+28,
+        fill="deepskyblue",
+        width=2,
+        capstyle=ROUND
+        )
+
 
 # Setup the graphics window
 root = Tk()
@@ -759,12 +856,12 @@ text2dsc.pack(side=LEFT)
 text2label = Label(textframe, font=("Helvetica", "16"), width=5)
 text2label.pack(side=LEFT)
 
-text3dsc = Label(textframe, text="Gear", font=("Helvetica", "16"))
+text3dsc = Label(textframe, text="Select", font=("Helvetica", "16"))
 text3dsc.pack(side=LEFT)
 text3label = Label(textframe, font=("Helvetica", "16"), width=5)
 text3label.pack(side=LEFT)
 
-text4dsc = Label(textframe, text="Xfer", font=("Helvetica", "16"))
+text4dsc = Label(textframe, text="Current", font=("Helvetica", "16"))
 text4dsc.pack(side=LEFT)
 text4label = Label(textframe, font=("Helvetica", "16"), width=5)
 text4label.pack(side=LEFT)
@@ -862,10 +959,11 @@ gauge6needle = gauge6.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge7 = Canvas(gaugeframe, width=200, height=175)
 gauge7.grid(row=2, column=3)
-gauge7.create_oval(fullcoord, fill="white",  width=2)
+#gauge7.create_oval(fullcoord, fill="white",  width=2)
 #gauge7desc = gauge7.create_text(100,120, text="TILT", font=("Helvetica", "16"))
 #gauge7label = gauge7.create_text(100,140, text="", font=("Helvetica", "16"))
 #gauge7needle = gauge7.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
+setuptachometer(gauge7,row=2, column=3)
 
 gauge8 = Canvas(gaugeframe, width=200, height=175)
 gauge8.grid(row=2, column=4)
