@@ -70,6 +70,8 @@ oldacmode = None
 oldevaptemp = None
 oldrecirc = None
 dark_mode = None
+olddimmer = 0
+oldignition = 0
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a): #Raw decimal 8 bit
@@ -391,6 +393,31 @@ def newevaptemp(levaptemp):
         oldevaptemp = levaptemp
         actext2label["text"] = str(levaptemp)
 
+def newdimmer(ldimmer):
+    global olddimmer
+    global dark_mode
+    if olddimmer != ldimmer:
+        olddimmer = ldimmer
+        if ldimmer == 0:
+            if dark_mode:
+                toggledarkmode()
+        else:
+            if not dark_mode:
+                toggledarkmode()
+
+def newignition(lignition):
+    global oldignition
+    if oldignition != lignition:
+        oldignition = lignition
+        if not args.vcan:
+            if lignition == 0:
+                print("Activating Screensaver")
+                subprocess.call(['xscreensaver-command', '-activate'])
+            else:
+                print("Deactivating Screensaver")
+                subprocess.call(['xscreensaver-command', '-deactivate'])
+            
+
 def newcellvoltage(index, value):
     global avgcellvoltage
     global packvoltage
@@ -573,7 +600,13 @@ monitorlist=[(0x2C2,
               canIHS,
               [("ACmode",acmode,newacmode,0),
                ("EvapTemp",temp,newevaptemp,1),
-               ("Recirc",recirc,newrecirc,3)])
+               ("Recirc",recirc,newrecirc,3)]),
+             (0x291,
+              canC,
+              [("Dimmer",raw8,newdimmer,6)]),
+             (0x077,
+              canC,
+              [("Ignition",raw8,newignition,0)])
              ]
 for canid in range(0x487, 0x49F):
     basecell = (canid - 0x487) * 4
