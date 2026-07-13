@@ -38,7 +38,7 @@ batterybars = []
 batterytexts = []
 batterylabelsdrawn = []
 oldpstemp = None
-oldrpm = None
+oldrpm = 0
 oldxfer = None
 oldtilt = 0.0
 oldroll = 0.0
@@ -65,10 +65,11 @@ rolltext = None
 filteredRoll = 0.0
 filteredTilt = 0.0
 oldcurrentgear = None
-oldinputrpm = None
+oldinputrpm = 0
 oldacmode = None
 oldevaptemp = None
 oldrecirc = None
+dark_mode = None
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a): #Raw decimal 8 bit
@@ -141,7 +142,10 @@ def curgear(x,a): #Transmission gear selection
         0x66: "6",
         0x77: "7",
         0x88: "8",
-        0xDD: "P"
+        0xDD: "P",
+        0x00: "N",
+        0xBB: "R",
+        0xB0: "R",
         }
     return GEARS.get(x[a], f"{x[a]:x}")
 
@@ -158,7 +162,7 @@ def xfer(x,a): #Transfer Case gear selection
 
 def batterycurrent(x,a): #4xe HV battery pack current
     raw = ((x[a] << 8) | x[a+1])
-    return(round(((raw * 0.05) - 255) ,1))
+    return(round((((raw * 0.05) - 255) * 2) ,1))
 
 def cellvoltage(x,a): #4xe HV Battery pack individual cell voltage
     raw = ((x[a] << 8) | x[a+1])
@@ -190,16 +194,8 @@ def newrpm(lrpm):
       lrpm = 0
     if lrpm != oldrpm:
       oldrpm = lrpm
-      cx = 100
-      cy = 87.5
-      radius = 85
-      angle = math.radians(-210 + (lrpm/7000.0)*240)
-      x = cx + (radius-22)*math.cos(angle)
-      y = cy + (radius-22)*math.sin(angle)
-      tachometer.coords(engineneedle,
-           cx,cy,
-           x,y)
-
+      updatetach()
+      
 def newmph(lmph):
     if str(lmph) != text1label["text"]:
       text1label["text"] = str(lmph)
@@ -315,15 +311,7 @@ def newinputrpm(linputrpm):
     global oldinputrpm
     if oldinputrpm != linputrpm:
         oldinputrpm = linputrpm
-        cx = 100
-        cy = 87.5
-        radius = 85
-        angle = math.radians(-210 + (linputrpm/7000.0)*240)
-        x = cx + (radius-30)*math.cos(angle)
-        y = cy + (radius-30)*math.sin(angle)
-        tachometer.coords(transneedle,
-             cx,cy,
-             x,y)
+        updatetach()
 
 def newbatterytemp(index, value):
     global oldbatterytemps
@@ -433,7 +421,7 @@ def updatehorizon():
     global oldroll
     cx = 100
     cy = 87.5
-    pitchscale = 3.0
+    pitchscale = 1.5
     length = 75
     p = max(-20, min(20, oldtilt)) # keep the line on the display
     yc = cy - p * pitchscale
@@ -472,6 +460,48 @@ def updatehorizon():
         rolltext,
         text=f"R:{roundroll}°"
     )
+
+def updatetach():
+    global oldrpm
+    global oldinputrpm
+    cx = 100
+    cy = 87.5
+    radius = 85
+    deadband = 50
+    enginedeg = -210 + (oldrpm/7000.0)*240
+    inputdeg  = -210 + (oldinputrpm/7000.0)*240
+    engineangle = math.radians(enginedeg)
+    engx = cx + (radius-22)*math.cos(engineangle)
+    engy = cy + (radius-22)*math.sin(engineangle)
+    tachometer.coords(engineneedle,
+      cx,cy,
+      engx,engy)
+    inputangle = math.radians(inputdeg)
+    inx = cx + (radius-30)*math.cos(inputangle)
+    iny = cy + (radius-30)*math.sin(inputangle)
+    tachometer.coords(transneedle,
+      cx,cy,
+      inx,iny)
+    arc_engine = 360 - enginedeg
+    arc_input  = 360 - inputdeg
+    extent = arc_input - arc_engine
+    while extent > 180:
+        extent -= 360
+    while extent < -180:
+        extent += 360
+    rpmdiff = oldinputrpm - oldrpm
+    if rpmdiff > 50:
+        color = "green"
+    elif rpmdiff < -50:
+        color = "firebrick"
+    else:
+        color = "yellow"
+    tachometer.itemconfig(
+        tachometerarc,
+        start=arc_engine,
+        extent=extent,
+        outline=color,
+        width=10)
 
 
 # list of can ID's and details to monitor in this order:
@@ -531,7 +561,7 @@ monitorlist=[(0x2C2,
                ("BattTemp14", temp, lambda v: newbatterytemp(14, v), 4),
                ("BattTemp15", temp, lambda v: newbatterytemp(15, v), 5),
                ("BattTemp16", temp, lambda v: newbatterytemp(16, v), 6),
-               ("BattTemp17", temp, lambda v: newbatterytemp(17, v), 7)]),
+               ("BattTemp17", temp, lambda v: newbatterytemp(17, v), 7)]),  
              (0x485,
               canC,
               [("BatteryCurrent",batterycurrent,newbatterycurrent,0)]),
@@ -617,6 +647,35 @@ def toggleACpage():
         batterybutton.config(relief=RAISED, bg="black", activebackground="black")
         acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
 
+def toggleDark():
+    global dark_mode
+    global battery_page
+    global ac_page
+    if dark_mode:
+        dark_mode = None
+        root.tk_setPalette(background='#F0F0F0', foreground='black',
+               activeBackground='#F0F0F0', activeForeground='black')
+        for children in gaugeframe.children.values():
+            children.itemconfigure('gauge', fill='white')
+        buttonframe.configure(bg='black')
+        for children in buttonframe.children.values():
+            children.configure(bg='black', activebackground='black')
+        if ac_page:
+            acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+        if battery_page:
+            batterybutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+        horizoncanvas.itemconfigure('gauge', fill='white')
+        tachometer.itemconfigure('gauge', fill='white')
+        batterycanvas.itemconfigure('text', fill='black')
+    else:
+        dark_mode = True
+        root.tk_setPalette(background='black', foreground='white',
+               activeBackground='black', activeForeground='white')
+        for children in gaugeframe.children.values():
+            children.itemconfigure('gauge', fill='grey')
+        horizoncanvas.itemconfigure('gauge', fill='grey')
+        tachometer.itemconfigure('gauge', fill='grey')
+        batterycanvas.itemconfigure('text', fill='white')
 
 
 # Subprocess functions - executes external commands
@@ -696,7 +755,8 @@ def setuphorizondisplay(parent, row, column): # artificial horizon for displayin
         cy+radius,
         outline="black",
         fill="white",
-        width=2
+        width=2,
+        tags="gauge"
     )
     for angle in range(-90, 91, 30): # roll tick marks
         a = math.radians(angle - 90)
@@ -745,6 +805,7 @@ def setuptachometer(parent, row, column): # Tachometer
     global tachometer
     global engineneedle
     global transneedle
+    global tachometerarc
     w = 200
     h = 175
     cx = w / 2
@@ -758,7 +819,8 @@ def setuptachometer(parent, row, column): # Tachometer
         cx+radius, cy+radius,
         outline="black",
         fill="white",
-        width=2)
+        width=2,
+        tags="gauge")
     for rpm in range(0, 7001, 500): # tick marks
         angle = math.radians(-210 + (rpm/7000.0)*240)
         x1 = cx + (radius-6)*math.cos(angle)
@@ -781,7 +843,19 @@ def setuptachometer(parent, row, column): # Tachometer
              text=str(rpm),
              fill="black",
              font=("Arial",10,"bold"))
-    tachometer.create_text(cx,
+    tachometerarc = tachometer.create_arc( # difference arc
+        cx-radius,
+        cy-radius,
+        cx+radius,
+        cy+radius,
+        start=0,
+        extent=0,
+        style=ARC,
+        width=10,
+        fill="",
+        outline=""
+        )
+    tachometer.create_text(cx, # title text
         cy+48,
         text="RPM x1000",
         fill="black",
@@ -790,8 +864,8 @@ def setuptachometer(parent, row, column): # Tachometer
         cx, cy,
         cx,
         cy-radius+20,
-        fill="red",
-        width=4,
+        fill="black",
+        width=10,
         capstyle=ROUND
         )
     transneedle = tachometer.create_line( # transmission input RPM needle
@@ -799,7 +873,7 @@ def setuptachometer(parent, row, column): # Tachometer
         cx,
         cy-radius+28,
         fill="deepskyblue",
-        width=2,
+        width=8,
         capstyle=ROUND
         )
 
@@ -832,7 +906,7 @@ batterybutton = Button(
     buttonframe, text="BATTERY", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=toggleBattpage)
 batterybutton.pack(side=LEFT)
 bigbutton4 = Button(
-    buttonframe, text="", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7)
+    buttonframe, text="DARK", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=toggleDark)
 bigbutton4.pack(side=LEFT)
 quitbutton = Button(
     buttonframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
@@ -920,68 +994,58 @@ fullcoord = 0, 0, 175, 175
 
 gauge1 = Canvas(gaugeframe, width=200, height=175)
 gauge1.grid(row=1, column=1)
-gauge1.create_arc(coord, start=30, extent=120, fill="white",  width=2)
+gauge1.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
 gauge1desc = gauge1.create_text(100,120, text="CoolT", font=("Helvetica", "16"))
 gauge1needle = gauge1.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge2 = Canvas(gaugeframe, width=200, height=175)
 gauge2.grid(row=1, column=2)
-gauge2.create_arc(coord, start=30, extent=120, fill="white",  width=2)
+gauge2.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
 gauge2desc = gauge2.create_text(100,120, text="PSTEMP", font=("Helvetica", "16"))
 gauge2label = gauge2.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge2needle = gauge2.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge3 = Canvas(gaugeframe, width=200, height=175)
 gauge3.grid(row=1, column=3)
-gauge3.create_arc(coord, start=30, extent=120, fill="white",  width=2)
+gauge3.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
 gauge3desc = gauge3.create_text(100,120, text="IAT", font=("Helvetica", "16"))
 gauge3label = gauge3.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge3needle = gauge3.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge4 = Canvas(gaugeframe, width=200, height=175)
 gauge4.grid(row=1, column=4)
-gauge4.create_arc(coord, start=30, extent=120, fill="white",  width=2)
+gauge4.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
 gauge4desc = gauge4.create_text(100,120, text="MAP", font=("Helvetica", "16"))
 gauge4needle = gauge4.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge5 = Canvas(gaugeframe, width=200, height=175)
 gauge5.grid(row=2, column=1)
-gauge5.create_arc(coord, start=30, extent=120, fill="white",  width=2)
+gauge5.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
 gauge5desc = gauge5.create_text(100,120, text="OilTemp", font=("Helvetica", "16"))
 gauge5needle = gauge5.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge6 = Canvas(gaugeframe, width=200, height=175)
 gauge6.grid(row=2, column=2)
-gauge6.create_arc(coord, start=30, extent=120, fill="white",  width=2)
+gauge6.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
 gauge6desc = gauge6.create_text(100,120, text="OilPres", font=("Helvetica", "16"))
 gauge6label = gauge6.create_text(100,80, text="", font=("Helvetica", "16"))
 gauge6needle = gauge6.create_arc(coord, start= 150, extent=1, width=7)
 
 gauge7 = Canvas(gaugeframe, width=200, height=175)
 gauge7.grid(row=2, column=3)
-#gauge7.create_oval(fullcoord, fill="white",  width=2)
-#gauge7desc = gauge7.create_text(100,120, text="TILT", font=("Helvetica", "16"))
-#gauge7label = gauge7.create_text(100,140, text="", font=("Helvetica", "16"))
-#gauge7needle = gauge7.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
 setuptachometer(gauge7,row=2, column=3)
 
 gauge8 = Canvas(gaugeframe, width=200, height=175)
 gauge8.grid(row=2, column=4)
-#gauge8.create_oval(fullcoord, fill="white",  width=2)
-#gauge8desc = gauge8.create_text(100,120, text="ROLL", font=("Helvetica", "16"))
-#gauge8label = gauge8.create_text(100,140, text="", font=("Helvetica", "16"))
-#gauge8needle = gauge8.create_arc(fullcoord, start= 0, extent=180, width=7, fill="green")
 setuphorizondisplay(gauge8,row=2, column=4)
 
 
 # Setup battery frame
 batteryframe = Frame(root)
-batteryframe.configure(bg='black')
 batterycanvas = Canvas(
     batteryframe,
     width=800,
     height=350,
-    bg='black',
     highlightthickness=0)
 batterylabels = [
     label
@@ -993,7 +1057,7 @@ batterycanvas.create_text(
         400,
         20,
         text="4xe HV Battery Temperatures",
-        fill="white",
+        fill="black",
         font=("Helvetica", "20", "bold"))
 for i in range(18):
         x = 20 + (i * 41)
@@ -1010,14 +1074,16 @@ for i in range(18):
             x + 14,
             240,
             text="0°",
-            fill="white",
+            fill="black",
+            tags="text",
             font=("Helvetica", "10", "bold"))
         batterytexts.append(temptext)
         label = batterycanvas.create_text(
             x + 14,
             320,
             text=batterylabels[i],
-            fill="gray80",
+            fill="black",
+            tags="text",
             angle=45,
             font=("Helvetica", "8"))
         batterylabelsdrawn.append(label)
@@ -1026,12 +1092,10 @@ batterycanvas.pack(fill="both", expand=True)
 
 # Setup the AC frame
 acframe = Frame(root)
-acframe.configure(bg='black')
 accanvas = Canvas(
     acframe,
     width=800,
     height=350,
-    bg='black',
     highlightthickness=0)
 maxacbutton = Button(
     acframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
@@ -1053,6 +1117,7 @@ actext3dsc = Label(acframe, text="Recirc", font=("Helvetica", "16"))
 actext3dsc.pack(side=LEFT)
 actext3label = Label(acframe, font=("Helvetica", "16"), width=5)
 actext3label.pack(side=LEFT)
+
 
 # Queue every single message received from the canbus
 gui_queue = queue.Queue()
