@@ -400,10 +400,12 @@ def newdimmer(ldimmer):
         olddimmer = ldimmer
         if ldimmer == 0:
             if dark_mode:
-                toggledarkmode()
+                print("Dimmer off")
+                toggleDark()
         else:
             if not dark_mode:
-                toggledarkmode()
+                print("Dimmer on")
+                toggleDark()
 
 def newignition(lignition):
     global oldignition
