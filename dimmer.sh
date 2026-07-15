@@ -17,7 +17,7 @@ do
     RUNL=${DATA:5:1}
     DIML=${DATA:12:2}
     # Only change the dimmer if the running lights are on
-    if [[ "$RUNL" == "3" || "$RUNL" == "1" ]]
+    if [ "$DIML" != "0" ]
     then
       # change hex into decimal
       DIMRAW="$(printf "%d" 0x$DIML)"
