@@ -72,6 +72,8 @@ oldrecirc = None
 dark_mode = None
 olddimmer = 0
 oldignition = 0
+packavg = [0.0] * 8
+packlabels = []
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a): #Raw decimal 8 bit
@@ -444,6 +446,8 @@ def newcellvoltage(index, value):
             if packvoltage is not lpackvoltage:
                 packvoltage = lpackvoltage
                 newbatterykw()
+    if index == 95:
+        updatepackvoltages()
 
 def updatehorizon():
     global oldtilt
@@ -532,6 +536,17 @@ def updatetach():
         outline=color,
         width=10)
 
+def updatepackvoltages():
+    global packavg
+    for pack in range(8):
+        start = pack * 12
+        end = start + 12
+        vals = cellvoltages[start:end]
+        if vals:
+            avg = sum(vals) / len(vals)
+            packavg[pack] = round(avg,2)
+            packlabels[pack].config(text=f"{packavg[pack]:.2f}")
+
 
 # list of can ID's and details to monitor in this order:
 # (ID, Channel, [("name", process, type, function, byte1, byte2)])
@@ -569,28 +584,28 @@ monitorlist=[(0x2C2,
               [("MAP",boost,newboost,2,4)]),
              (0x4A0,
               canC,
-              [("BattTemp0", temp, lambda v: newbatterytemp(0, v), 0),
-               ("BattTemp1", temp, lambda v: newbatterytemp(1, v), 1),
-               ("BattTemp2", temp, lambda v: newbatterytemp(2, v), 2),
-               ("BattTemp3", temp, lambda v: newbatterytemp(3, v), 3),
-               ("BattTemp4", temp, lambda v: newbatterytemp(4, v), 4),
-               ("BattTemp5", temp, lambda v: newbatterytemp(5, v), 5)]),
+              [("Temp1", temp, lambda v: newbatterytemp(0, v), 0),
+               ("Temp2", temp, lambda v: newbatterytemp(1, v), 1),
+               ("Temp3", temp, lambda v: newbatterytemp(2, v), 2),
+               ("Temp4", temp, lambda v: newbatterytemp(3, v), 3),
+               ("Temp5", temp, lambda v: newbatterytemp(4, v), 4),
+               ("Temp6", temp, lambda v: newbatterytemp(5, v), 5)]),
              (0x4A1,
               canC,
-              [("BattTemp6", temp, lambda v: newbatterytemp(6, v), 0),
-               ("BattTemp7", temp, lambda v: newbatterytemp(7, v), 1),
-               ("BattTemp8", temp, lambda v: newbatterytemp(8, v), 2),
-               ("BattTemp9", temp, lambda v: newbatterytemp(9, v), 3),
-               ("BattTemp10", temp, lambda v: newbatterytemp(10, v), 4),
-               ("BattTemp11", temp, lambda v: newbatterytemp(11, v), 5)]),
+              [("Temp7", temp, lambda v: newbatterytemp(6, v), 0),
+               ("Temp8", temp, lambda v: newbatterytemp(7, v), 1),
+               ("Temp9", temp, lambda v: newbatterytemp(8, v), 2),
+               ("Temp10", temp, lambda v: newbatterytemp(9, v), 3),
+               ("Temp11", temp, lambda v: newbatterytemp(10, v), 4),
+               ("Temp12", temp, lambda v: newbatterytemp(11, v), 5)]),
              (0x4A2,
               canC,
-              [("BattTemp12", temp, lambda v: newbatterytemp(12, v), 0),
-               ("BattTemp13", temp, lambda v: newbatterytemp(13, v), 1),
-               ("BattTemp14", temp, lambda v: newbatterytemp(14, v), 4),
-               ("BattTemp15", temp, lambda v: newbatterytemp(15, v), 5),
-               ("BattTemp16", temp, lambda v: newbatterytemp(16, v), 6),
-               ("BattTemp17", temp, lambda v: newbatterytemp(17, v), 7)]),  
+              [("Temp13", temp, lambda v: newbatterytemp(12, v), 0),
+               ("Temp14", temp, lambda v: newbatterytemp(13, v), 1),
+               ("Temp15", temp, lambda v: newbatterytemp(14, v), 4),
+               ("Temp16", temp, lambda v: newbatterytemp(15, v), 5),
+               ("Temp17", temp, lambda v: newbatterytemp(16, v), 6),
+               ("Temp18", temp, lambda v: newbatterytemp(17, v), 7)]),  
              (0x485,
               canC,
               [("BatteryCurrent",batterycurrent,newbatterycurrent,0)]),
@@ -1091,11 +1106,44 @@ batterylabels = [
 batterycanvas.create_text(
         400,
         20,
+        text="4xe HV Battery Voltages",
+        fill="black",
+        tags="text",
+        font=("Helvetica", "20", "bold"))
+packlabels = []
+for i in range(8):
+    x = 75 + (i % 8) * 90
+    y = 55 + (i // 8) * 44
+    # Pack title
+    batterycanvas.create_text(
+        x,
+        y,
+        text=f"Pack {i+1}",
+        tags="text",
+        font=("Arial",12,"bold")
+    )
+    # Average voltage
+    lbl = Label(
+        batterycanvas,
+        text="0.00",
+        width=6,
+        font=("Courier",14,"bold")
+    )
+    batterycanvas.create_window(
+        x,
+        y + 24,
+        window=lbl
+    )
+    packlabels.append(lbl)
+batterycanvas.create_text(
+        400,
+        150,
         text="4xe HV Battery Temperatures",
         fill="black",
+        tags="text",
         font=("Helvetica", "20", "bold"))
 for i in range(18):
-        x = 20 + (i * 41)
+        x = 30 + (i * 41)
         bar = batterycanvas.create_rectangle(
             x,
             280,
@@ -1114,7 +1162,7 @@ for i in range(18):
             font=("Helvetica", "10", "bold"))
         batterytexts.append(temptext)
         label = batterycanvas.create_text(
-            x + 14,
+            x + 8,
             320,
             text=batterylabels[i],
             fill="black",
