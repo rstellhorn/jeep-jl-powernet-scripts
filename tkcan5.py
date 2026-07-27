@@ -32,6 +32,8 @@ else:
 # Initialize variables
 canFilter = list()
 shutting_down = False
+backgroundcolor = '#F0F0F0'
+currentPage = 1
 cam = None
 dump = None
 batterybars = []
@@ -49,8 +51,6 @@ oldoilpres = None
 oldboost = None
 oldbaro = 0
 oldbatterytemps = [0] * 18
-battery_page = False
-ac_page = False
 oldbatterycurrent = None
 packvoltage = None
 cellvoltages = [0.0] * 96
@@ -188,6 +188,43 @@ def recirc(x,a): #Air Recirculation selection
         }
     return MODE.get(x[a], f"{x[a]:x}")
 
+def gpstrans(x,a): #Gps data transformation
+    return(x)
+
+from pyproj import Transformer
+
+# WGS84 <-> UTM Zone 10N
+utm_to_wgs = Transformer.from_crs(
+    "EPSG:32610",
+    "EPSG:4326",
+    always_xy=True,
+)
+
+def can36c_to_wgs84(payload: bytes):
+    """
+    payload = 8-byte CAN data from ID 0x36C
+    returns (lat, lon)
+    """
+
+    x = int.from_bytes(payload[0:4], "little")
+    y = int.from_bytes(payload[4:8], "little")
+
+    # Affine transform to UTM (meters)
+    easting = (
+        -1.76604814e-4 * x
+        + 7.37941421e-3 * y
+        - 4249000.71
+    )
+
+    northing = (
+         9.29881908e-3 * x
+        +1.37370491e-4 * y
+        -10089251.2
+    )
+
+    lon, lat = utm_to_wgs.transform(easting, northing)
+
+    return lat, lon
 
 # Display Functions
 def newrpm(lrpm):
@@ -449,6 +486,12 @@ def newcellvoltage(index, value):
     if index == 95:
         updatepackvoltages()
 
+def newgps(lgps):
+    textgps = str()
+    for i in lgps:
+        textgps += f"{i} " ""
+    print(textgps)
+
 def updatehorizon():
     global oldtilt
     global oldroll
@@ -623,7 +666,10 @@ monitorlist=[(0x2C2,
               [("Dimmer",raw8,newdimmer,6)]),
              (0x077,
               canC,
-              [("Ignition",raw8,newignition,0)])
+              [("Ignition",raw8,newignition,0)]),
+             (0x36C,
+              canIHS,
+              [("GPS",can36c_to_wgs84,newgps)])
              ]
 for canid in range(0x487, 0x49F):
     basecell = (canid - 0x487) * 4
@@ -663,66 +709,85 @@ def synchvac():
   synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(synchvaccmd, timeout=1)
 
-def toggleBattpage():
-    global battery_page
-    global ac_page
-    if battery_page:
-        batteryframe.pack_forget()
+def togglePage(page):
+    global currentPage
+    global cam
+    gaugeframe.pack_forget()
+    acframe.pack_forget()
+    batteryframe.pack_forget()
+    batterybutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
+    acbutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
+    cambutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
+    if cam:
+        cam.terminate()
+        cam = None
+    if page == currentPage: # Return to Gauge page
+        currentPage = 1
         gaugeframe.pack(side=TOP, fill="x")
-        battery_page = False
-        batterybutton.config(relief=RAISED, bg="black", activebackground="black")
-    else:
-        gaugeframe.pack_forget()
-        acframe.pack_forget()
+    elif page == 2: # Show Battery Page
+        currentPage = 2
         batteryframe.pack(side=TOP, fill="both", expand=True)
-        battery_page = True
-        ac_page = False
-        acbutton.config(relief=RAISED, bg="black", activebackground="black")
         batterybutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
-
-def toggleACpage():
-    global ac_page
-    global battery_page
-    if ac_page:
-        acframe.pack_forget()
-        gaugeframe.pack(side=TOP, fill="x")
-        ac_page = False
-        acbutton.config(relief=RAISED, bg="black", activebackground="black")
-    else:
-        gaugeframe.pack_forget()
-        batteryframe.pack_forget()
+    elif page == 3: # Show AC Page
+        currentPage = 3
         acframe.pack(side=TOP, fill="both", expand=True)
-        ac_page = True
-        battery_page = False
-        batterybutton.config(relief=RAISED, bg="black", activebackground="black")
         acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+    elif page == 4: # Show Camera
+        try:
+            cam = subprocess.Popen(["raspivid", "-t", "0", "-v", "-w", "800", "-h", "480", "-op", "200"])
+        except:
+            print("No Camera")
+        else:
+            camstatus = cam.poll()
+            if camstatus is None:
+                currentPage = 4
+                gaugeframe.pack_forget()
+                cambutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
 
 def toggleDark():
     global dark_mode
-    global battery_page
-    global ac_page
+    global backgroundcolor
     if dark_mode:
         dark_mode = None
-        root.tk_setPalette(background='#F0F0F0', foreground='black',
-               activeBackground='#F0F0F0', activeForeground='black')
+        backgroundcolor = '#F0F0F0'
+        root.tk_setPalette(background=backgroundcolor, foreground='black',
+               activeBackground=backgroundcolor, activeForeground='black')
         for children in gaugeframe.children.values():
             children.itemconfigure('gauge', fill='white')
-        buttonframe.configure(bg='black')
-        for children in buttonframe.children.values():
-            children.configure(bg='black', activebackground='black')
-        if ac_page:
+        if currentPage == 3:
             acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
-        if battery_page:
+        if currentPage == 2:
             batterybutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+        if currentPage == 4:
+            cambutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
         horizoncanvas.itemconfigure('gauge', fill='white')
         tachometer.itemconfigure('gauge', fill='white')
         batterycanvas.itemconfigure('text', fill='black')
     else:
         dark_mode = True
-        root.tk_setPalette(background='black', foreground='white',
-               activeBackground='black', activeForeground='white')
+        backgroundcolor = 'black'
+        root.tk_setPalette(background=backgroundcolor, foreground='white',
+               activeBackground=backgroundcolor, activeForeground='white')
         for children in gaugeframe.children.values():
             children.itemconfigure('gauge', fill='grey')
+        for b in (
+            batterybutton,
+            acbutton,
+            cambutton,
+            dumpbutton,
+            darkbutton,
+            quitbutton,
+            screenoffbutton,
+            ):
+            b.configure(bg=backgroundcolor, activebackground=backgroundcolor)
+        if currentPage == 3:
+            acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+        if currentPage == 2:
+            batterybutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+        if currentPage == 4:
+            cambutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+        if dump:
+            dumpbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
         horizoncanvas.itemconfigure('gauge', fill='grey')
         tachometer.itemconfigure('gauge', fill='grey')
         batterycanvas.itemconfigure('text', fill='white')
@@ -732,27 +797,12 @@ def toggleDark():
 def blankscreen():
     subprocess.call(['xscreensaver-command', '-activate'])
 
-def camera():
-    global cam
-    if cam:
-        cam.terminate()
-        cam = None
-        gaugeframe.pack(side=TOP, fill="x")
-        cambutton.config(relief=RAISED, bg="black", activebackground="black")
-    else:
-        cam = subprocess.Popen(["raspivid", "-t", "0", "-v", "-w", "800", "-h", "480", "-op", "200"])
-        camstatus = cam.poll()
-        if camstatus is None:
-                gaugeframe.pack_forget()
-        else:
-            cambutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
-
 def candump():
     global dump
     if dump:
         dump.terminate()
         dump = None
-        dumpbutton.config(relief=RAISED, bg="black", activebackground="black")
+        dumpbutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
     else:
         dump = subprocess.Popen(["candump", "-l", "any", "-n", "1000000", "-T", "1000"])
         dumpbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
@@ -935,34 +985,33 @@ root.title("This is Root")
 root.protocol("WM_DELETE_WINDOW", quitprogram)
 if args.fullscreen:
     root.attributes("-fullscreen", True)
-root.configure(bg='black')
-
+    
 
 # Setup the button row
 buttonframe=Frame(root)
-buttonframe.configure(bg='black')
+buttonframe.configure()
 buttonframe.pack(side=BOTTOM, fill="x")
 
-camerabutton = Button(
-    buttonframe, text="CAMERA", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=camera)
-camerabutton.pack(side=LEFT)
-dumpbutton = Button(
-    buttonframe, text="CANDUMP", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=candump)
-dumpbutton.pack(side=LEFT)
+cambutton = Button(
+    buttonframe, text="CAMERA", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=lambda: togglePage(4))
+cambutton.pack(side=LEFT)
 acbutton = Button(
-    buttonframe, text="AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=toggleACpage)
+    buttonframe, text="AC", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=lambda: togglePage(3))
 acbutton.pack(side=LEFT)
 batterybutton = Button(
-    buttonframe, text="BATTERY", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=toggleBattpage)
+    buttonframe, text="BATTERY", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=lambda: togglePage(2))
 batterybutton.pack(side=LEFT)
-bigbutton4 = Button(
-    buttonframe, text="DARK", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=toggleDark)
-bigbutton4.pack(side=LEFT)
+dumpbutton = Button(
+    buttonframe, text="CANDUMP", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=candump)
+dumpbutton.pack(side=LEFT)
+darkbutton = Button(
+    buttonframe, text="DARK", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=toggleDark)
+darkbutton.pack(side=LEFT)
 quitbutton = Button(
-    buttonframe, text="QUIT", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=quitprogram)
+    buttonframe, text="QUIT", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=quitprogram)
 quitbutton.pack(side=LEFT)
 screenoffbutton = Button(
-    buttonframe, text="Screen OFF", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=blankscreen)
+    buttonframe, text="Screen OFF", fg="red", activeforeground="red", font=("Helvetica", "16"), wraplength=100, highlightthickness=3, highlightbackground="grey", height=2, width=7, command=blankscreen)
 screenoffbutton.pack(side=LEFT)
 
 
@@ -1238,13 +1287,13 @@ def check_signals():
         if poll is not None:
             dump.terminate()
             dump = None
-            dumpbutton.config(relief=RAISED, bg="black", activebackground="black")
+            dumpbutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
     if cam: # Check if raspivid has closed and if so reset the button
         poll = cam.poll()
         if poll is not None:
             cam.terminate()
             cam = None
-            cambutton.config(relief=RAISED, bg="black", activebackground="black")
+            cambutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
     root.after(1000, check_signals)
 
 root.after(100, check_signals)
