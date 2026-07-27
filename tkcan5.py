@@ -453,10 +453,16 @@ def newignition(lignition):
         if not args.vcan:
             if lignition == 0:
                 print("Activating Screensaver")
-                subprocess.call(['xscreensaver-command', '-activate'])
+                try:
+                    subprocess.call(['xscreensaver-command', '-activate'])
+                except:
+                    print('No Screensaver Available -activate')
             else:
                 print("Deactivating Screensaver")
-                subprocess.call(['xscreensaver-command', '-deactivate'])
+                try:
+                    subprocess.call(['xscreensaver-command', '-deactivate'])
+                except:
+                    print('No Screensaver Available -deactivate')
             
 
 def newcellvoltage(index, value):
@@ -586,9 +592,10 @@ def updatepackvoltages():
         end = start + 12
         vals = cellvoltages[start:end]
         if vals:
-            avg = sum(vals) / len(vals)
-            packavg[pack] = round(avg,2)
-            packlabels[pack].config(text=f"{packavg[pack]:.2f}")
+            #avg = sum(vals) / len(vals)
+            avg = sum(vals)
+            packavg[pack] = round(avg,1)
+            packlabels[pack].config(text=f"{packavg[pack]:.1f}")
 
 
 # list of can ID's and details to monitor in this order:
@@ -718,11 +725,13 @@ def togglePage(page):
     batterybutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
     acbutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
     cambutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
-    if cam:
-        cam.terminate()
-        cam = None
     if page == currentPage: # Return to Gauge page
         currentPage = 1
+        if cam:
+            cam.terminate()
+            cam = None
+            if olddimmer == 0:
+                toggledark()
         gaugeframe.pack(side=TOP, fill="x")
     elif page == 2: # Show Battery Page
         currentPage = 2
@@ -737,27 +746,32 @@ def togglePage(page):
             cam = subprocess.Popen(["raspivid", "-t", "0", "-v", "-w", "800", "-h", "480", "-op", "200"])
         except:
             print("No Camera")
+            cam = None
+            togglePage(1)
         else:
             camstatus = cam.poll()
             if camstatus is None:
                 currentPage = 4
-                gaugeframe.pack_forget()
+                toggleDark()
                 cambutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+    else:
+        currentPage = 1
+        gaugeframe.pack(side=TOP, fill="x")
 
 def toggleDark():
     global dark_mode
     global backgroundcolor
-    if dark_mode:
+    if dark_mode == True and currentPage != 4:
         dark_mode = None
         backgroundcolor = '#F0F0F0'
         root.tk_setPalette(background=backgroundcolor, foreground='black',
                activeBackground=backgroundcolor, activeForeground='black')
         for children in gaugeframe.children.values():
             children.itemconfigure('gauge', fill='white')
-        if currentPage == 3:
-            acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
         if currentPage == 2:
             batterybutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+        if currentPage == 3:
+            acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
         if currentPage == 4:
             cambutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
         horizoncanvas.itemconfigure('gauge', fill='white')
@@ -780,10 +794,10 @@ def toggleDark():
             screenoffbutton,
             ):
             b.configure(bg=backgroundcolor, activebackground=backgroundcolor)
-        if currentPage == 3:
-            acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
         if currentPage == 2:
             batterybutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
+        if currentPage == 3:
+            acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
         if currentPage == 4:
             cambutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
         if dump:
@@ -795,7 +809,10 @@ def toggleDark():
 
 # Subprocess functions - executes external commands
 def blankscreen():
-    subprocess.call(['xscreensaver-command', '-activate'])
+    try:
+        subprocess.call(['xscreensaver-command', '-activate'])
+    except:
+        print('No Screensaver Available')
 
 def candump():
     global dump
@@ -1174,7 +1191,7 @@ for i in range(8):
     # Average voltage
     lbl = Label(
         batterycanvas,
-        text="0.00",
+        text="00.0",
         width=6,
         font=("Courier",14,"bold")
     )
@@ -1285,15 +1302,11 @@ def check_signals():
     if dump: # Check if candump has closed and if so reset the button
         poll = dump.poll()
         if poll is not None:
-            dump.terminate()
-            dump = None
-            dumpbutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
+            candump()
     if cam: # Check if raspivid has closed and if so reset the button
         poll = cam.poll()
         if poll is not None:
-            cam.terminate()
-            cam = None
-            cambutton.config(relief=RAISED, bg=backgroundcolor, activebackground=backgroundcolor)
+            togglePage(4)
     root.after(1000, check_signals)
 
 root.after(100, check_signals)
