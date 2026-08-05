@@ -35,7 +35,7 @@ do
     then
       echo "Dimming to $DIMLEVEL / 200"
       # update the screen brightness
-      #echo $DIMLEVEL > /sys/class/backlight/rpi_backlight/brightness
+      echo $DIMLEVEL > /sys/class/backlight/10-0045/brightness
       LASTDIM=$DIMLEVEL
     fi
     LAST=$NOW
