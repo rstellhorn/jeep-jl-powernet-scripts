@@ -6,7 +6,7 @@ LAST=77777
 LASTDIM=199
 
 # Watch the canbus for packets from the light switch
-COMMAND="/usr/bin/candump -L can1,0291:0FFF"
+COMMAND="/usr/bin/candump -L vcan1,0291:0FFF"
 $COMMAND | while read TIME BUS MESSAGE
 do
   NOW=$SECONDS
@@ -15,12 +15,13 @@ do
     #Pick out just the data bits that we need
     DATA=${MESSAGE:4}
     RUNL=${DATA:5:1}
-    DIML=${DATA:12:2}
+    DIML=0x${DATA:12:2}
+    echo $DIML
     # Only change the dimmer if the running lights are on
-    if [ "$DIML" != "0" ]
+    if (( $DIML != 0x00 ))
     then
       # change hex into decimal
-      DIMRAW="$(printf "%d" 0x$DIML)"
+      DIMRAW="$(printf "%d" $DIML)"
       # scale the 22-200 input to 0-53
       DIMCALC="`bc <<< $((DIMRAW - 22))*.3`"
       # drop the floating point and add 7 to meet the screen minimum
@@ -34,7 +35,7 @@ do
     then
       echo "Dimming to $DIMLEVEL / 200"
       # update the screen brightness
-      echo $DIMLEVEL > /sys/class/backlight/rpi_backlight/brightness
+      #echo $DIMLEVEL > /sys/class/backlight/rpi_backlight/brightness
       LASTDIM=$DIMLEVEL
     fi
     LAST=$NOW
