@@ -6,7 +6,7 @@ LAST=77777
 LASTDIM=199
 
 # Watch the canbus for packets from the light switch
-COMMAND="/usr/bin/candump -L vcan1,0291:0FFF"
+COMMAND="/usr/bin/candump -L can1,0291:0FFF"
 $COMMAND | while read TIME BUS MESSAGE
 do
   NOW=$SECONDS
