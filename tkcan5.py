@@ -10,7 +10,7 @@ import sys
 import argparse
 import queue
 import math
-
+from pyproj import Transformer
 
 # Use parser to provide help and command line options
 parser = argparse.ArgumentParser("GUI dashboard canbus data display built for 2018+ Jeep JL/JT/etc... products")
@@ -20,8 +20,6 @@ parser.add_argument('--fullscreen', '-f', action='store_true',
                     help='Enable Full Screen')
 args = parser.parse_args()
 
-
-# If using vcan for log playback, change the values in the quotes below
 if args.vcan:
     canIHS = "vcan0"
     canC = "vcan1"
@@ -177,52 +175,24 @@ def acmode(x,a): #Air Conditioning selection
         0x00: "Off",
         0x01: "Vent",
         0x03: "AC",
-        0x07: "Defrost"
-        }
-    return MODE.get(x[a], f"{x[a]:x}")
-
-def recirc(x,a): #Air Recirculation selection
-    MODE = {
-        0x00: "outside",
-        0x08: "recirc"
+        0x07: "Defrost",
+        0x23: "Max AC"
         }
     return MODE.get(x[a], f"{x[a]:x}")
 
 def gpstrans(x,a): #Gps data transformation
     return(x)
 
-from pyproj import Transformer
-
-# WGS84 <-> UTM Zone 10N
-utm_to_wgs = Transformer.from_crs(
-    "EPSG:32610",
-    "EPSG:4326",
-    always_xy=True,
-)
-
-def can36c_to_wgs84(payload: bytes):
+def can36c_to_wgs84(x):
     """
     payload = 8-byte CAN data from ID 0x36C
     returns (lat, lon)
     """
+    lat_raw = int.from_bytes(x[0:4], "little")
+    lon_raw = int.from_bytes(x[4:8], "little")
 
-    x = int.from_bytes(payload[0:4], "little")
-    y = int.from_bytes(payload[4:8], "little")
-
-    # Affine transform to UTM (meters)
-    easting = (
-        -1.76604814e-4 * x
-        + 7.37941421e-3 * y
-        - 4249000.71
-    )
-
-    northing = (
-         9.29881908e-3 * x
-        +1.37370491e-4 * y
-        -10089251.2
-    )
-
-    lon, lat = utm_to_wgs.transform(easting, northing)
+    lat = lat_raw * 360.0 / 2**32 - 90.0
+    lon = lon_raw * 360.0 / 2**32 - 180.0
 
     return lat, lon
 
@@ -424,7 +394,7 @@ def newrecirc(lrecirc):
     global oldrecirc
     if lrecirc != oldrecirc:
         oldrecirc = lrecirc
-        actext3label["text"] = str(lrecirc)
+        actext3label["text"] = f"{lrecirc:#04x}"
 
 def newevaptemp(levaptemp):
     global oldevaptemp
@@ -450,19 +420,18 @@ def newignition(lignition):
     global oldignition
     if oldignition != lignition:
         oldignition = lignition
-        if not args.vcan:
-            if lignition == 0:
-                print("Activating Screensaver")
-                try:
-                    subprocess.call(['xscreensaver-command', '-activate'])
-                except:
-                    print('No Screensaver Available -activate')
-            else:
-                print("Deactivating Screensaver")
-                try:
-                    subprocess.call(['xscreensaver-command', '-deactivate'])
-                except:
-                    print('No Screensaver Available -deactivate')
+        if lignition == 0:
+            print("Activating Screensaver")
+            try:
+                subprocess.call(['xscreensaver-command', '-activate'])
+            except:
+                print('No Screensaver Available -activate')
+        else:
+            print("Deactivating Screensaver")
+            try:
+                subprocess.call(['xscreensaver-command', '-deactivate'])
+            except:
+                print('No Screensaver Available -deactivate')
             
 
 def newcellvoltage(index, value):
@@ -666,8 +635,8 @@ monitorlist=[(0x2C2,
              (0x230,
               canIHS,
               [("ACmode",acmode,newacmode,0),
-               ("EvapTemp",temp,newevaptemp,1),
-               ("Recirc",recirc,newrecirc,3)]),
+               ("UnknTemp",temp,newevaptemp,1),
+               ("Unknown",raw8,newrecirc,3)]),
              (0x291,
               canC,
               [("Dimmer",raw8,newdimmer,6)]),
@@ -1248,24 +1217,24 @@ accanvas = Canvas(
     highlightthickness=0)
 maxacbutton = Button(
     acframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
-maxacbutton.pack(side=LEFT)
+maxacbutton.grid(row=1, column=1)
 syncacbutton = Button(
     acframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
-syncacbutton.pack(side=LEFT)
+syncacbutton.grid(row=1, column=2)
 actext1dsc = Label(acframe, text="ACMode", font=("Helvetica", "16"))
-actext1dsc.pack(side=LEFT)
+actext1dsc.grid(row=2, column=1)
 actext1label = Label(acframe, font=("Helvetica", "16"), width=5)
-actext1label.pack(side=LEFT)
+actext1label.grid(row=3, column=1)
 
-actext2dsc = Label(acframe, text="EVAP T", font=("Helvetica", "16"))
-actext2dsc.pack(side=LEFT)
+actext2dsc = Label(acframe, text="Unknown T", font=("Helvetica", "16"))
+actext2dsc.grid(row=2, column=2)
 actext2label = Label(acframe, font=("Helvetica", "16"), width=5)
-actext2label.pack(side=LEFT)
+actext2label.grid(row=3, column=2)
 
-actext3dsc = Label(acframe, text="Recirc", font=("Helvetica", "16"))
-actext3dsc.pack(side=LEFT)
+actext3dsc = Label(acframe, text="Unknown", font=("Helvetica", "16"))
+actext3dsc.grid(row=2, column=3)
 actext3label = Label(acframe, font=("Helvetica", "16"), width=5)
-actext3label.pack(side=LEFT)
+actext3label.grid(row=3, column=3)
 
 
 # Queue every single message received from the canbus
