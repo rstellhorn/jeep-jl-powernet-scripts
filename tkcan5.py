@@ -467,7 +467,7 @@ def newgps(lgps):
     textgps = str()
     for i in lgps:
         textgps += f"{i} " ""
-    print(textgps)
+    #print(textgps)
     oldgps[0] = lgps[0]
     oldgps[1] = lgps[1]  
     actext4label["text"] = round(oldgps[0],5)
