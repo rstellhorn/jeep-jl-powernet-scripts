@@ -1229,9 +1229,10 @@ maxacbutton.grid(row=1, column=1)
 syncacbutton = Button(
     acframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
 syncacbutton.grid(row=1, column=2)
-gpslinkbutton = Button(
-    acframe, text="GPS Link", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=gpslink)
-gpslinkbutton.grid(row=1, column=5)
+if args.vcan:
+    gpslinkbutton = Button(
+        acframe, text="GPS Link", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=gpslink)
+    gpslinkbutton.grid(row=1, column=5)
 
 actext1dsc = Label(acframe, text="ACMode", font=("Helvetica", "16"))
 actext1dsc.grid(row=2, column=1)
