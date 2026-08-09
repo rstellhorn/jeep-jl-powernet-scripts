@@ -10,7 +10,7 @@ import sys
 import argparse
 import queue
 import math
-from pyproj import Transformer
+import webbrowser
 
 # Use parser to provide help and command line options
 parser = argparse.ArgumentParser("GUI dashboard canbus data display built for 2018+ Jeep JL/JT/etc... products")
@@ -72,6 +72,7 @@ olddimmer = 0
 oldignition = 0
 packavg = [0.0] * 8
 packlabels = []
+oldgps = [0] * 2
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a): #Raw decimal 8 bit
@@ -462,10 +463,15 @@ def newcellvoltage(index, value):
         updatepackvoltages()
 
 def newgps(lgps):
+    global oldgps
     textgps = str()
     for i in lgps:
         textgps += f"{i} " ""
     print(textgps)
+    oldgps[0] = lgps[0]
+    oldgps[1] = lgps[1]  
+    actext4label["text"] = round(oldgps[0],5)
+    actext5label["text"] = round(oldgps[1],5)
 
 def updatehorizon():
     global oldtilt
@@ -685,6 +691,9 @@ def synchvac():
   synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(synchvaccmd, timeout=1)
 
+def gpslink():
+    webbrowser.open(f"https://www.google.com/maps/search/?api=1&query={oldgps[0]},{oldgps[1]}")
+
 def togglePage(page):
     global currentPage
     global cam
@@ -792,7 +801,6 @@ def candump():
     else:
         dump = subprocess.Popen(["candump", "-l", "any", "-n", "1000000", "-T", "1000"])
         dumpbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
-
 
 def quitprogram(): # Correctly and cleanly close this program
     global notifier
@@ -1221,6 +1229,10 @@ maxacbutton.grid(row=1, column=1)
 syncacbutton = Button(
     acframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
 syncacbutton.grid(row=1, column=2)
+gpslinkbutton = Button(
+    acframe, text="GPS Link", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=gpslink)
+gpslinkbutton.grid(row=1, column=5)
+
 actext1dsc = Label(acframe, text="ACMode", font=("Helvetica", "16"))
 actext1dsc.grid(row=2, column=1)
 actext1label = Label(acframe, font=("Helvetica", "16"), width=5)
@@ -1235,6 +1247,16 @@ actext3dsc = Label(acframe, text="Unknown", font=("Helvetica", "16"))
 actext3dsc.grid(row=2, column=3)
 actext3label = Label(acframe, font=("Helvetica", "16"), width=5)
 actext3label.grid(row=3, column=3)
+
+actext4dsc = Label(acframe, text="Lat", font=("Helvetica", "16"))
+actext4dsc.grid(row=2, column=4)
+actext4label = Label(acframe, font=("Helvetica", "16"), width=10)
+actext4label.grid(row=3, column=4)
+
+actext5dsc = Label(acframe, text="Long", font=("Helvetica", "16"))
+actext5dsc.grid(row=2, column=5)
+actext5label = Label(acframe, font=("Helvetica", "16"), width=10)
+actext5label.grid(row=3, column=5)
 
 
 # Queue every single message received from the canbus
