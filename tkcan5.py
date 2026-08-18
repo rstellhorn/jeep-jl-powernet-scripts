@@ -73,6 +73,12 @@ oldignition = 0
 packavg = [0.0] * 8
 packlabels = []
 oldgps = [0] * 2
+gaugecanvases = []
+gaugeovals = []
+gaugelabels = []
+gaugeneedles = []
+gaugemins = []
+gaugemaxs = []
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a): #Raw decimal 8 bit
@@ -200,8 +206,6 @@ def can36c_to_wgs84(x):
 # Display Functions
 def newrpm(lrpm):
     global oldrpm
-    low_r = 0 # chart low range
-    hi_r = 7000 # chart hi range
     if lrpm == 65535:
       lrpm = 0
     if lrpm != oldrpm:
@@ -225,59 +229,48 @@ def newxfer(lxfer):
     if lxfer != oldxfer:
         oldxfer = lxfer
 
-def newpstemp(lpstemp):
+def newpstemp(lpstemp, gauge):
     global oldpstemp
-    low_r = 50 # chart low range
-    hi_r = 250 # chart hi range
     if lpstemp != oldpstemp:
       text8label["text"] = str(lpstemp)
-      pstempangle = (120 * (hi_r - lpstemp) / (hi_r - low_r) + 30)
-      gauge2.itemconfig(gauge2needle,start = pstempangle)
-      gauge2.grid()
+      if gauge is not None:
+          updategauge(gauge, lpstemp)
       oldpstemp = lpstemp
 
-def newiat(liat):
+def newiat(liat, gauge):
     global oldiat
-    low_r = 50 # chart low range
-    hi_r = 250 # chart hi range
     if liat != oldiat:
       text9label["text"] = str(liat)
-      iattempangle = (120 * (hi_r - liat) / (hi_r - low_r) + 30)
-      gauge3.itemconfig(gauge3needle,start = iattempangle)
-      gauge3.grid()
+      if gauge is not None:
+          updategauge(gauge, liat)
       oldiat = liat
 
-def newcoolant(lcoolant):
+def newcoolant(lcoolant, gauge):
     global oldcoolant
-    low_r = 100 # chart low range
-    hi_r = 300 # chart hi range
-    if str(lcoolant) != text7label["text"]:
+    if lcoolant != oldcoolant:
       text7label["text"] = str(lcoolant)
-      coolanttempangle = (120 * (hi_r - lcoolant) / (hi_r - low_r) + 30)
-      gauge1.itemconfig(gauge1needle,start = coolanttempangle)
-      gauge1.grid()
+      if lcoolant >= 240:
+          color = 'red'
+      else:
+          color = None
+      if gauge is not None:
+          updategauge(gauge, lcoolant, color)
       oldcoolant = lcoolant
 
-def newoiltemp(loiltemp):
+def newoiltemp(loiltemp, gauge):
     global oldoiltemp
-    low_r = 100 # chart low range
-    hi_r = 300 # chart hi range
     if loiltemp != oldoiltemp:
       text11label["text"] = str(loiltemp)
-      oiltemptempangle = (120 * (hi_r - loiltemp) / (hi_r - low_r) + 30)
-      gauge5.itemconfig(gauge5needle,start = oiltemptempangle)
-      gauge5.grid()
+      if gauge is not None:
+          updategauge(gauge, loiltemp)
       oldoiltemp = loiltemp
 
-def newoilpres(loilpres):
+def newoilpres(loilpres, gauge):
     global oldoilpres
-    low_r = 0 # chart low range
-    hi_r = 80 # chart hi range
     if loilpres != oldoilpres:
       text12label["text"] = str(loilpres)
-      oilprestempangle = (120 * (hi_r - loilpres) / (hi_r - low_r) + 30)
-      gauge6.itemconfig(gauge6needle,start = oilprestempangle)
-      gauge6.grid()
+      if gauge is not None:
+          updategauge(gauge, loilpres)
       oldoilpres = loilpres
 
 def newtilt(ltilt):
@@ -298,15 +291,12 @@ def newroll(lroll):
        oldroll = filteredRoll
        updatehorizon()
 
-def newboost(lboost):
+def newboost(lboost, gauge):
     global oldboost
-    low_r = -35 # chart low range
-    hi_r = 35 # chart hi range
     if lboost != oldboost:
       text10label["text"] = str(lboost)
-      boosttempangle = (120 * (hi_r - lboost) / (hi_r - low_r) + 30)
-      gauge4.itemconfig(gauge4needle,start = boosttempangle)
-      gauge4.grid()
+      if gauge is not None:
+          updategauge(gauge, lboost)
       oldboost = lboost
 
 def newbaro(lbaro):
@@ -473,6 +463,30 @@ def newgps(lgps):
     actext4label["text"] = round(oldgps[0],5)
     actext5label["text"] = round(oldgps[1],5)
 
+def updategauge(gauge, value, color=None):
+    index = gauge - 1
+    minimum = gaugemins[index]
+    maximum = gaugemaxs[index]
+    clipped = max(minimum, min(maximum, value))
+    angle = -210 + (240 * (clipped - minimum) / (maximum - minimum))
+    gaugecanvases[index].itemconfig(
+        gaugelabels[index], text=str(value))
+    gaugecanvases[index].coords(
+        gaugeneedles[index],
+        100, 87.5,
+        100 + 63 * math.cos(math.radians(angle)),
+        87.5 + 63 * math.sin(math.radians(angle)))
+    if color:
+        gaugecanvases[index].itemconfig(gaugeovals[index], fill=color)
+        gaugecanvases[index].itemconfig(gaugeneedles[index], fill="black")
+    else:
+        if dark_mode is True:
+            gaugecanvases[index].itemconfig(gaugeovals[index], fill='grey')
+        else:
+            gaugecanvases[index].itemconfig(gaugeovals[index], fill='white')
+        gaugecanvases[index].itemconfig(gaugeneedles[index], fill="red")
+        
+
 def updatehorizon():
     global oldtilt
     global oldroll
@@ -574,111 +588,103 @@ def updatepackvoltages():
 
 
 # list of can ID's and details to monitor in this order:
-# (ID, Channel, [("name", process, type, function, byte1, byte2)])
-monitorlist=[(0x2C2,
-              canIHS,
-              [("Batt V",volt,newbattv,2)]),
-             (0x02B,
-              canC,
-              [("Roll",tilt,newroll,0,1),
-               ("Tilt",tilt,newtilt,2,3)]),
-             (0x322,
-              canIHS,
-              [("RPM",rpm,newrpm,0,1),
-               ("MPH",mph,newmph,2,3)]),
-             (0x127,
-              canC,
-              [("IAT",temp,newiat,0),
-               ("Coolant",temp,newcoolant,1),
-               ("BARO",baro,newbaro,2)]),
-             (0x13D,
-              canC,
-              [("Oil Temp",temp,newoiltemp,3),
-               ("Oil Pres",psi,newoilpres,2)]),
-             (0x093,
-              canC,
-              [("Gear",gear,newgear,2)]),
-             (0x277,
-              canC,
-              [("Transfer",xfer,newxfer,0)]),
-             (0x128,
-              canC,
-              [("PS Temp",pstemp,newpstemp,1)]),
-              (0x081,
-              canC,
-              [("MAP",boost,newboost,2,4)]),
-             (0x4A0,
-              canC,
-              [("Temp1", temp, lambda v: newbatterytemp(0, v), 0),
-               ("Temp2", temp, lambda v: newbatterytemp(1, v), 1),
-               ("Temp3", temp, lambda v: newbatterytemp(2, v), 2),
-               ("Temp4", temp, lambda v: newbatterytemp(3, v), 3),
-               ("Temp5", temp, lambda v: newbatterytemp(4, v), 4),
-               ("Temp6", temp, lambda v: newbatterytemp(5, v), 5)]),
-             (0x4A1,
-              canC,
-              [("Temp7", temp, lambda v: newbatterytemp(6, v), 0),
-               ("Temp8", temp, lambda v: newbatterytemp(7, v), 1),
-               ("Temp9", temp, lambda v: newbatterytemp(8, v), 2),
-               ("Temp10", temp, lambda v: newbatterytemp(9, v), 3),
-               ("Temp11", temp, lambda v: newbatterytemp(10, v), 4),
-               ("Temp12", temp, lambda v: newbatterytemp(11, v), 5)]),
-             (0x4A2,
-              canC,
-              [("Temp13", temp, lambda v: newbatterytemp(12, v), 0),
-               ("Temp14", temp, lambda v: newbatterytemp(13, v), 1),
-               ("Temp15", temp, lambda v: newbatterytemp(14, v), 4),
-               ("Temp16", temp, lambda v: newbatterytemp(15, v), 5),
-               ("Temp17", temp, lambda v: newbatterytemp(16, v), 6),
-               ("Temp18", temp, lambda v: newbatterytemp(17, v), 7)]),  
-             (0x485,
-              canC,
-              [("BatteryCurrent",batterycurrent,newbatterycurrent,0)]),
-             (0x085,
-              canC,
-              [("CurrentGear",curgear,newcurrentgear,1),
-               ("InputRPM",rpm,newinputrpm,5,6)]),
-             (0x230,
-              canIHS,
-              [("ACmode",acmode,newacmode,0),
-               ("UnknTemp",temp,newevaptemp,1),
-               ("Unknown",raw8,newrecirc,3)]),
-             (0x291,
-              canC,
-              [("Dimmer",raw8,newdimmer,6)]),
-             (0x077,
-              canC,
-              [("Ignition",raw8,newignition,0)]),
-             (0x36C,
-              canIHS,
-              [("GPS",can36c_to_wgs84,newgps)])
-             ]
+# (ID, Channel, [("description", decoder, callback, (byte1, byte2), gauge, min, max)])
+monitorlist=[
+    (0x2C2, canIHS,
+        [("Batt V", volt, newbattv, (2,), None, None, None)]),
+
+    (0x02B, canC,
+        [("Roll", tilt, newroll, (0,1), None, None, None),
+         ("Tilt", tilt, newtilt, (2,3), None, None, None)]),
+
+    (0x322, canIHS,
+        [("RPM", rpm, newrpm, (0,1), None, None, None),
+         ("MPH", mph, newmph, (2,3), None, None, None)]),
+
+    (0x127, canC,
+        [("IAT", temp, newiat, (0,), 3, 50, 250),
+         ("Coolant", temp, newcoolant, (1,), 1, 100, 300),
+         ("BARO", baro, newbaro, (2,), None, None, None)]),
+
+    (0x13D, canC,
+        [("Oil Temp", temp, newoiltemp, (3,), 5, 100, 300),
+         ("Oil Pres", psi, newoilpres, (2,), 6, 0, 80)]),
+
+    (0x093, canC,
+        [("Gear", gear, newgear, (2,), None, None, None)]),
+
+    (0x277, canC,
+        [("Transfer", xfer, newxfer, (0,), None, None, None)]),
+
+    (0x128, canC,
+        [("PS Temp", pstemp, newpstemp, (1,), 2, 50, 250)]),
+
+    (0x081, canC,
+        [("MAP", boost, newboost, (2,4), 4, -35, 35)]),
+
+    (0x4A0, canC,
+        [("Temp1", temp, lambda v: newbatterytemp(0, v), (0,), None, None, None),
+         ("Temp2", temp, lambda v: newbatterytemp(1, v), (1,), None, None, None),
+         ("Temp3", temp, lambda v: newbatterytemp(2, v), (2,), None, None, None),
+         ("Temp4", temp, lambda v: newbatterytemp(3, v), (3,), None, None, None),
+         ("Temp5", temp, lambda v: newbatterytemp(4, v), (4,), None, None, None),
+         ("Temp6", temp, lambda v: newbatterytemp(5, v), (5,), None, None, None)]),
+
+    (0x4A1, canC,
+        [("Temp7", temp, lambda v: newbatterytemp(6, v), (0,), None, None, None),
+         ("Temp8", temp, lambda v: newbatterytemp(7, v), (1,), None, None, None),
+         ("Temp9", temp, lambda v: newbatterytemp(8, v), (2,), None, None, None),
+         ("Temp10", temp, lambda v: newbatterytemp(9, v), (3,), None, None, None),
+         ("Temp11", temp, lambda v: newbatterytemp(10, v), (4,), None, None, None),
+         ("Temp12", temp, lambda v: newbatterytemp(11, v), (5,), None, None, None)]),
+
+    (0x4A2, canC,
+        [("Temp13", temp, lambda v: newbatterytemp(12, v), (0,), None, None, None),
+         ("Temp14", temp, lambda v: newbatterytemp(13, v), (1,), None, None, None),
+         ("Temp15", temp, lambda v: newbatterytemp(14, v), (4,), None, None, None),
+         ("Temp16", temp, lambda v: newbatterytemp(15, v), (5,), None, None, None),
+         ("Temp17", temp, lambda v: newbatterytemp(16, v), (6,), None, None, None),
+         ("Temp18", temp, lambda v: newbatterytemp(17, v), (7,), None, None, None)]),
+
+    (0x485, canC,
+        [("BatteryCurrent", batterycurrent, newbatterycurrent, (0,), None, None, None)]),
+
+    (0x085, canC,
+        [("CurrentGear", curgear, newcurrentgear, (1,), None, None, None),
+         ("InputRPM", rpm, newinputrpm, (5,6), None, None, None)]),
+
+    (0x230, canIHS,
+        [("ACmode", acmode, newacmode, (0,), None, None, None),
+         ("UnknTemp", temp, newevaptemp, (1,), None, None, None),
+         ("Unknown", raw8, newrecirc, (3,), None, None, None)]),
+
+    (0x291, canC,
+        [("Dimmer", raw8, newdimmer, (6,), None, None, None)]),
+
+    (0x077, canC,
+        [("Ignition", raw8, newignition, (0,), None, None, None)]),
+
+    (0x36C, canIHS,
+        [("GPS", can36c_to_wgs84, newgps, (), None, None, None)])
+    ]
+
 for canid in range(0x487, 0x49F):
     basecell = (canid - 0x487) * 4
     monitorlist.append(
-        (canid,
-         canC,
+        (canid, canC,
          [
-          (f"Cell{basecell}",
-           cellvoltage,
-           lambda v, i=basecell:
-               newcellvoltage(i, v),
-           0),
-          (f"Cell{basecell+1}",
-           cellvoltage,
-           lambda v, i=basecell+1:
-               newcellvoltage(i, v),
-           2),
-            (f"Cell{basecell+2}",
-             cellvoltage,
-             lambda v, i=basecell+2:
-                newcellvoltage(i, v),
-             4),
-            (f"Cell{basecell+3}",
-             cellvoltage,
-             lambda v, i=basecell+3:
-                 newcellvoltage(i, v),
-             6)
+          (f"Cell{basecell}", cellvoltage,
+           lambda v, i=basecell: newcellvoltage(i, v),
+           (0,), None, None, None),
+          (f"Cell{basecell+1}", cellvoltage,
+           lambda v, i=basecell+1: newcellvoltage(i, v),
+           (2,), None, None, None),
+          (f"Cell{basecell+2}", cellvoltage,
+           lambda v, i=basecell+2: newcellvoltage(i, v),
+           (4,), None, None, None),
+          (f"Cell{basecell+3}", cellvoltage,
+           lambda v, i=basecell+3: newcellvoltage(i, v),
+           (6,), None, None, None)
          ]))
 
 
@@ -825,7 +831,79 @@ def quitprogram(): # Correctly and cleanly close this program
     sys.exit(0)
 
 
-# Special display configuration
+# display configuration
+def setupgauges():
+    """Create gauges 1-6 from the gauge numbers in monitorlist."""
+    gaugecanvases.clear()
+    gaugeovals.clear()
+    gaugelabels.clear()
+    gaugeneedles.clear()
+    gaugemins.clear()
+    gaugemaxs.clear()
+
+    gaugeinfo = [None] * 6
+
+    # Find the six gauge definitions directly in monitorlist.
+    for canid, channel, signals in monitorlist:
+        for description, decoder, callback, decoder_args, gauge, minimum, maximum in signals:
+            if gauge is not None:
+                gaugeinfo[gauge - 1] = (description, minimum, maximum)
+
+    for number in range(1, 7):
+        description, minimum, maximum = gaugeinfo[number - 1]
+
+        row = 1 if number <= 4 else 2
+        column = number if number <= 4 else number - 4
+
+        canvas = Canvas(gaugeframe, width=200, height=175)
+        canvas.grid(row=row, column=column)
+
+        cx = 100
+        cy = 87.5
+        radius = 85
+
+        oval = canvas.create_oval(
+            cx-radius, cy-radius, cx+radius, cy+radius,
+            outline="black", fill="white", width=2, tags="gauge")
+
+        divisions = 10
+        for tick in range(divisions + 1):
+            angle = math.radians(-210 + tick * (240 / divisions))
+            x1 = cx + (radius - 6) * math.cos(angle)
+            y1 = cy + (radius - 6) * math.sin(angle)
+            inner = radius - (18 if tick % 2 == 0 else 12)
+            x2 = cx + inner * math.cos(angle)
+            y2 = cy + inner * math.sin(angle)
+            canvas.create_line(x1, y1, x2, y2, fill="black", width=2, tags="gauge_text")
+
+        for tick in range(0, divisions + 1, 2):
+            value = minimum + (maximum - minimum) * tick / divisions
+            angle = math.radians(-210 + tick * (240 / divisions))
+            tx = cx + (radius - 32) * math.cos(angle)
+            ty = cy + (radius - 32) * math.sin(angle)
+            label = str(int(value)) if float(value).is_integer() else f"{value:.1f}"
+            canvas.create_text(tx, ty, text=label, fill="black",
+                               font=("Arial", 9, "bold"), tags="gauge_text")
+
+        canvas.create_text(cx, 145, text=description,
+                           fill="black", font=("Helvetica", 13, "bold"), tags="gauge_text")
+
+        value_label = canvas.create_text(cx, 105, text="",
+                                         fill="black", font=("Helvetica", 14, "bold"), tags="gauge_text")
+
+        needle = canvas.create_line(
+            cx, cy,
+            cx + (radius - 22) * math.cos(math.radians(-210)),
+            cy + (radius - 22) * math.sin(math.radians(-210)),
+            fill="red", width=3)
+
+        gaugecanvases.append(canvas)
+        gaugeovals.append(oval)
+        gaugelabels.append(value_label)
+        gaugeneedles.append(needle)
+        gaugemins.append(minimum)
+        gaugemaxs.append(maximum)
+
 def setuphorizondisplay(parent, row, column): # artificial horizon for displaying tilt and roll
     global horizoncanvas
     global horizonline
@@ -1082,47 +1160,7 @@ gaugeframe = Frame(root)
 gaugeframe.pack(side=TOP, fill="x")
 gaugeframe.configure(bg='black')
 
-coord = 0, 0, 200, 350 # define the size of the gauge
-fullcoord = 0, 0, 175, 175
-
-gauge1 = Canvas(gaugeframe, width=200, height=175)
-gauge1.grid(row=1, column=1)
-gauge1.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
-gauge1desc = gauge1.create_text(100,120, text="CoolT", font=("Helvetica", "16"))
-gauge1needle = gauge1.create_arc(coord, start= 150, extent=1, width=7)
-
-gauge2 = Canvas(gaugeframe, width=200, height=175)
-gauge2.grid(row=1, column=2)
-gauge2.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
-gauge2desc = gauge2.create_text(100,120, text="PSTEMP", font=("Helvetica", "16"))
-gauge2label = gauge2.create_text(100,80, text="", font=("Helvetica", "16"))
-gauge2needle = gauge2.create_arc(coord, start= 150, extent=1, width=7)
-
-gauge3 = Canvas(gaugeframe, width=200, height=175)
-gauge3.grid(row=1, column=3)
-gauge3.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
-gauge3desc = gauge3.create_text(100,120, text="IAT", font=("Helvetica", "16"))
-gauge3label = gauge3.create_text(100,80, text="", font=("Helvetica", "16"))
-gauge3needle = gauge3.create_arc(coord, start= 150, extent=1, width=7)
-
-gauge4 = Canvas(gaugeframe, width=200, height=175)
-gauge4.grid(row=1, column=4)
-gauge4.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
-gauge4desc = gauge4.create_text(100,120, text="MAP", font=("Helvetica", "16"))
-gauge4needle = gauge4.create_arc(coord, start= 150, extent=1, width=7)
-
-gauge5 = Canvas(gaugeframe, width=200, height=175)
-gauge5.grid(row=2, column=1)
-gauge5.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
-gauge5desc = gauge5.create_text(100,120, text="OilTemp", font=("Helvetica", "16"))
-gauge5needle = gauge5.create_arc(coord, start= 150, extent=1, width=7)
-
-gauge6 = Canvas(gaugeframe, width=200, height=175)
-gauge6.grid(row=2, column=2)
-gauge6.create_arc(coord, start=30, extent=120, fill="white",  width=2, tags="gauge")
-gauge6desc = gauge6.create_text(100,120, text="OilPres", font=("Helvetica", "16"))
-gauge6label = gauge6.create_text(100,80, text="", font=("Helvetica", "16"))
-gauge6needle = gauge6.create_arc(coord, start= 150, extent=1, width=7)
+setupgauges()
 
 gauge7 = Canvas(gaugeframe, width=200, height=175)
 gauge7.grid(row=2, column=3)
@@ -1144,7 +1182,7 @@ batterylabels = [
     label
     for canid, _, signals in monitorlist
     if 0x4A0 <= canid <= 0x4A2
-    for label, _, _, _ in signals
+    for label, _, _, _, _, _, _ in signals
 ]
 batterycanvas.create_text(
         400,
@@ -1269,12 +1307,9 @@ def newmsg(msg):
   for monitor in monitorlist:
    if msg.arbitration_id == monitor[0] and msg.channel == monitor[1]:
     for detail in monitor[2]:
-     name = detail[0]
-     decoder = detail[1]
-     callbk = detail[2]
-     args = detail[3:]
-     value = decoder(msg.data, *args)
-     gui_queue.put((callbk, value))
+     name, decoder, callbk, decoder_args, gauge, minimum, maximum = detail
+     value = decoder(msg.data, *decoder_args)
+     gui_queue.put((callbk, value, gauge))
 
 
 # Build out the can bus filtering list. only receive messages that we care about.
@@ -1309,13 +1344,14 @@ def process_gui_queue():
     global queue_after
     while True:
         try:
-            callbk, value = gui_queue.get_nowait()
+            callbk, value, gauge = gui_queue.get_nowait()
         except queue.Empty:
             break
-        try:
+        if gauge is not None:
+            callbk(value, gauge)
+        else:
             callbk(value)
-        except Exception as e:
-            print(f"GUI callback {callbk.__name__} failed: {e}")
+
     queue_after = root.after(10, process_gui_queue)
 
 queue_after = root.after(10, process_gui_queue)
