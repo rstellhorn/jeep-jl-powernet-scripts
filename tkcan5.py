@@ -11,6 +11,11 @@ import argparse
 import queue
 import math
 import webbrowser
+try:
+    import isotp
+    isotpAvailable = True
+except ModuleNotFoundError:
+    isotpAvailable = False
 
 # Use parser to provide help and command line options
 parser = argparse.ArgumentParser("GUI dashboard canbus data display built for 2018+ Jeep JL/JT/etc... products")
@@ -79,6 +84,9 @@ gaugelabels = []
 gaugeneedles = []
 gaugemins = []
 gaugemaxs = []
+oldtires = [0] * 4
+tirefillset = [None] * 4
+oldtranstemp = None
 
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a): #Raw decimal 8 bit
@@ -91,7 +99,10 @@ def volt(x,a): #Battery Volts
     return(x[a] / 10)
 
 def temp(x,a): #Oil temperature in F
-    return(round((((x[a] - 40) * (9 / 5)) + 32)))
+    return(round(((x[a] - 40) * (9 / 5)) + 32))
+
+def transtemp(x,a): #Transmission temperature in F
+    return(round(((x[a] - 50) * (9 / 5)) + 32))
 
 def tilt(x,a,b): #Angle in Degrees
     return(round(((x[a]<<8) + x[b] - 2048) / 10))
@@ -106,6 +117,9 @@ def mph(x,a,b):
 
 def psi(x,a): #Oil Pressure in PSI
     return(round(((x[a] * 4) * 0.145038)))
+
+def tpsi(x,a): #Oil Pressure in PSI
+    return(math.floor(((x[a] * 7) * 0.145038)))
 
 def steer(x,a,b): #Steering angle
     return(((x[a]<<8) + x[b]) - 0x1000)
@@ -229,7 +243,7 @@ def newxfer(lxfer):
     if lxfer != oldxfer:
         oldxfer = lxfer
 
-def newpstemp(lpstemp, gauge):
+def newpstemp(lpstemp, gauge=None):
     global oldpstemp
     if lpstemp != oldpstemp:
       text8label["text"] = str(lpstemp)
@@ -237,7 +251,14 @@ def newpstemp(lpstemp, gauge):
           updategauge(gauge, lpstemp)
       oldpstemp = lpstemp
 
-def newiat(liat, gauge):
+def newtranstemp(ltranstemp, gauge=None):
+    global oldtranstemp
+    if ltranstemp != oldtranstemp:
+      if gauge is not None:
+          updategauge(gauge, ltranstemp)
+      oldtranstemp = ltranstemp
+
+def newiat(liat, gauge=None):
     global oldiat
     if liat != oldiat:
       text9label["text"] = str(liat)
@@ -245,7 +266,7 @@ def newiat(liat, gauge):
           updategauge(gauge, liat)
       oldiat = liat
 
-def newcoolant(lcoolant, gauge):
+def newcoolant(lcoolant, gauge=None):
     global oldcoolant
     if lcoolant != oldcoolant:
       text7label["text"] = str(lcoolant)
@@ -257,7 +278,7 @@ def newcoolant(lcoolant, gauge):
           updategauge(gauge, lcoolant, color)
       oldcoolant = lcoolant
 
-def newoiltemp(loiltemp, gauge):
+def newoiltemp(loiltemp, gauge=None):
     global oldoiltemp
     if loiltemp != oldoiltemp:
       text11label["text"] = str(loiltemp)
@@ -265,7 +286,7 @@ def newoiltemp(loiltemp, gauge):
           updategauge(gauge, loiltemp)
       oldoiltemp = loiltemp
 
-def newoilpres(loilpres, gauge):
+def newoilpres(loilpres, gauge=None):
     global oldoilpres
     if loilpres != oldoilpres:
       text12label["text"] = str(loilpres)
@@ -291,7 +312,7 @@ def newroll(lroll):
        oldroll = filteredRoll
        updatehorizon()
 
-def newboost(lboost, gauge):
+def newboost(lboost, gauge=None):
     global oldboost
     if lboost != oldboost:
       text10label["text"] = str(lboost)
@@ -463,6 +484,26 @@ def newgps(lgps):
     actext4label["text"] = round(oldgps[0],5)
     actext5label["text"] = round(oldgps[1],5)
 
+def newtire(index,value):
+    global oldtires
+    global tirefillset
+    if oldtires[index] != value:
+        oldtires[index] = value
+        print(index, value)
+        if tirefillset[index]:
+            if value >= tirefillset[index]:
+                print(value, tirefillset[index])
+                honk(index + 1)
+                tirefillset[index] = None
+                fillremain = 0
+                for i in range(4):
+                    if tirefillset[i] is not None:
+                        fillremain += 1
+                if fillremain == 0:
+                    btn_set.config(text="enable")
+                    tirelabel.config(bg=backgroundcolor, activebackground=backgroundcolor)
+        
+
 def updategauge(gauge, value, color=None):
     index = gauge - 1
     minimum = gaugemins[index]
@@ -602,7 +643,7 @@ monitorlist=[
          ("MPH", mph, newmph, (2,3), None, None, None)]),
 
     (0x127, canC,
-        [("IAT", temp, newiat, (0,), 3, 50, 250),
+        [("IAT", temp, newiat, (0,), None, 50, 250),
          ("Coolant", temp, newcoolant, (1,), 1, 100, 300),
          ("BARO", baro, newbaro, (2,), None, None, None)]),
 
@@ -618,6 +659,9 @@ monitorlist=[
 
     (0x128, canC,
         [("PS Temp", pstemp, newpstemp, (1,), 2, 50, 250)]),
+
+    (0x125, canC,
+        [("Trans T", transtemp, newtranstemp, (1,), 3, 100, 300)]),
 
     (0x081, canC,
         [("MAP", boost, newboost, (2,4), 4, -35, 35)]),
@@ -664,6 +708,12 @@ monitorlist=[
     (0x077, canC,
         [("Ignition", raw8, newignition, (0,), None, None, None)]),
 
+    (0x296, canC,
+        [("Tire1", tpsi, lambda v: newtire(0, v), (3,), None, None, None),
+         ("Tire2", tpsi, lambda v: newtire(1, v), (4,), None, None, None),
+         ("Tire3", tpsi, lambda v: newtire(2, v), (5,), None, None, None),
+         ("Tire4", tpsi, lambda v: newtire(3, v), (6,), None, None, None)]),
+
     (0x36C, canIHS,
         [("GPS", can36c_to_wgs84, newgps, (), None, None, None)])
     ]
@@ -697,8 +747,39 @@ def synchvac():
   synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(synchvaccmd, timeout=1)
 
+def honk(times=1):
+    diagcmd = can.Message(data=[0x02, 0x10, 0x03], is_extended_id=False, arbitration_id=0x620, channel=canC)
+    honkcmd = can.Message(data=[0x05, 0x2F, 0xD0, 0xAD, 0x03, 0x01], is_extended_id=False, arbitration_id=0x620, channel=canC)
+    nohonkcmd = can.Message(data=[0x05, 0x2F, 0xD0, 0xAD, 0x03, 0x00], is_extended_id=False, arbitration_id=0x620, channel=canC)
+    bus.send(diagcmd, timeout=1)
+    while times > 0:
+        bus.send(honkcmd, timeout=1)
+        bus.send(nohonkcmd, timeout=1)
+        print("Honk")
+        times -= 1
+        if times > 0:
+            time.sleep(.5)
+
 def gpslink():
     webbrowser.open(f"https://www.google.com/maps/search/?api=1&query={oldgps[0]},{oldgps[1]}")
+
+def tireincrease():
+    tireset.set(tireset.get() + 1)
+def tiredecrease():
+    tireset.set(tireset.get() - 1)
+def tireenable():
+    global tirefillset
+    for i in range(4):
+        if tirefillset[i] is not None:
+            for t in range(4):
+                tirefillset[t] = None
+            btn_set.config(text="enable")
+            tirelabel.config(bg=backgroundcolor, activebackground=backgroundcolor)
+            return
+    for i in range(4):
+        tirefillset[i] = tireset.get()
+    btn_set.config(text="disable")
+    tirelabel.config(bg="yellow", activebackground="yellow")
 
 def togglePage(page):
     global currentPage
@@ -715,7 +796,7 @@ def togglePage(page):
             cam.terminate()
             cam = None
             if olddimmer == 0:
-                toggledark()
+                toggleDark()
         gaugeframe.pack(side=TOP, fill="x")
     elif page == 2: # Show Battery Page
         currentPage = 2
@@ -727,7 +808,7 @@ def togglePage(page):
         acbutton.config(relief=SUNKEN, bg="yellow", activebackground="yellow")
     elif page == 4: # Show Camera
         try:
-            cam = subprocess.Popen(["raspivid", "-t", "0", "-v", "-w", "800", "-h", "480", "-op", "200"])
+            cam = subprocess.Popen(["rpicam-vid", "-t", "0", "-f", "--width", "800", "--height", "480", "--rotation", "180", "--hdr", "-op", "200"])
         except:
             print("No Camera")
             cam = None
@@ -1049,7 +1130,6 @@ def setuptachometer(parent, row, column): # Tachometer
         capstyle=ROUND
         )
 
-
 # Setup the graphics window
 root = Tk()
 root.geometry("800x480+0+0")
@@ -1068,7 +1148,7 @@ cambutton = Button(
     buttonframe, text="CAMERA", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=lambda: togglePage(4))
 cambutton.pack(side=LEFT)
 acbutton = Button(
-    buttonframe, text="AC", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=lambda: togglePage(3))
+    buttonframe, text="OTHER", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=lambda: togglePage(3))
 acbutton.pack(side=LEFT)
 batterybutton = Button(
     buttonframe, text="BATTERY", fg="red", activeforeground="red", font=("Helvetica", "16"), highlightthickness=3, highlightbackground="grey", height=2, width=7, command=lambda: togglePage(2))
@@ -1261,41 +1341,63 @@ accanvas = Canvas(
     width=800,
     height=350,
     highlightthickness=0)
+accanvas.pack(side=TOP)
 maxacbutton = Button(
-    acframe, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
+    accanvas, text="MAX AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=maxac)
 maxacbutton.grid(row=1, column=1)
 syncacbutton = Button(
-    acframe, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
+    accanvas, text="SYNC AC", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=synchvac)
 syncacbutton.grid(row=1, column=2)
 if args.vcan:
     gpslinkbutton = Button(
-        acframe, text="GPS Link", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=gpslink)
+        accanvas, text="GPS Link", fg="red", activeforeground="red", bg="black", activebackground="black", font=("Helvetica", "16"), height=2, width=7, command=gpslink)
     gpslinkbutton.grid(row=1, column=5)
 
-actext1dsc = Label(acframe, text="ACMode", font=("Helvetica", "16"))
+actext1dsc = Label(accanvas, text="ACMode", font=("Helvetica", "16"))
 actext1dsc.grid(row=2, column=1)
-actext1label = Label(acframe, font=("Helvetica", "16"), width=5)
+actext1label = Label(accanvas, font=("Helvetica", "16"), width=5)
 actext1label.grid(row=3, column=1)
 
-actext2dsc = Label(acframe, text="Unknown T", font=("Helvetica", "16"))
+actext2dsc = Label(accanvas, text="Unknown T", font=("Helvetica", "16"))
 actext2dsc.grid(row=2, column=2)
-actext2label = Label(acframe, font=("Helvetica", "16"), width=5)
+actext2label = Label(accanvas, font=("Helvetica", "16"), width=5)
 actext2label.grid(row=3, column=2)
 
-actext3dsc = Label(acframe, text="Unknown", font=("Helvetica", "16"))
+actext3dsc = Label(accanvas, text="Unknown", font=("Helvetica", "16"))
 actext3dsc.grid(row=2, column=3)
-actext3label = Label(acframe, font=("Helvetica", "16"), width=5)
+actext3label = Label(accanvas, font=("Helvetica", "16"), width=5)
 actext3label.grid(row=3, column=3)
 
-actext4dsc = Label(acframe, text="Lat", font=("Helvetica", "16"))
+actext4dsc = Label(accanvas, text="Lat", font=("Helvetica", "16"))
 actext4dsc.grid(row=2, column=4)
-actext4label = Label(acframe, font=("Helvetica", "16"), width=10)
+actext4label = Label(accanvas, font=("Helvetica", "16"), width=10)
 actext4label.grid(row=3, column=4)
 
-actext5dsc = Label(acframe, text="Long", font=("Helvetica", "16"))
+actext5dsc = Label(accanvas, text="Long", font=("Helvetica", "16"))
 actext5dsc.grid(row=2, column=5)
-actext5label = Label(acframe, font=("Helvetica", "16"), width=10)
+actext5label = Label(accanvas, font=("Helvetica", "16"), width=10)
 actext5label.grid(row=3, column=5)
+
+honkbutton = Button(acframe, text="HONK", command=honk, width=5)
+honkbutton.pack(side=TOP, padx=10)
+
+tirefill=Canvas(acframe,
+    width=400,
+    height=150)
+tirefill.pack(side=BOTTOM)
+tireset = IntVar(value=35)
+
+tirelabel = Label(tirefill, textvariable=tireset, font=("Arial", 24))
+tirelabel.pack(pady=20)
+
+btn_inc = Button(tirefill, text="+", command=tireincrease, width=5)
+btn_inc.pack(side=LEFT, padx=10)
+
+btn_dec = Button(tirefill, text="-", command=tiredecrease, width=5)
+btn_dec.pack(side=RIGHT, padx=10)
+
+btn_set = Button(tirefill, text="enable", command=tireenable, width=10)
+btn_set.pack(side=RIGHT, padx=10)
 
 
 # Queue every single message received from the canbus
