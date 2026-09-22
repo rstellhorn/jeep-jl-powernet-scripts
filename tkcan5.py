@@ -88,6 +88,16 @@ oldtires = [0] * 4
 tirefillset = [None] * 4
 oldtranstemp = None
 
+# UDS command variables
+diag = [0x10, 0x03]
+tester = [0x3E, 0x00]
+honkon = [0x2F, 0xD0, 0xAD, 0x03, 0x01]
+nohonk = [0x2F, 0xD0, 0xAD, 0x03, 0x00]
+vin = [0x22, 0xF1, 0x90]
+dtccount = [0x19, 0x01, 0x09]
+dtclist = [0x19, 0x02, 0x09]
+wakeup = can.Message(data=[0x07, 0, 0, 0, 0, 0, 0, 0], is_extended_id=False, arbitration_id=0x2D3, channel="can1")
+
 # defined types to process the data. x = can message , a = byte 1 , b = byte 2
 def raw8(x,a): #Raw decimal 8 bit
     return(x[a])
@@ -493,7 +503,7 @@ def newtire(index,value):
         if tirefillset[index]:
             if value >= tirefillset[index]:
                 print(value, tirefillset[index])
-                honk(index + 1)
+                (index + 1)
                 tirefillset[index] = None
                 fillremain = 0
                 for i in range(4):
@@ -747,19 +757,33 @@ def synchvac():
   synchvaccmd = can.Message(data=[0, 0, 0, 0x04, 0], is_extended_id=False, arbitration_id=0x342, channel=canIHS)
   bus.send(synchvaccmd, timeout=1)
 
-def honk(times=1):
-    diagcmd = can.Message(data=[0x02, 0x10, 0x03], is_extended_id=False, arbitration_id=0x620, channel=canC)
-    honkcmd = can.Message(data=[0x05, 0x2F, 0xD0, 0xAD, 0x03, 0x01], is_extended_id=False, arbitration_id=0x620, channel=canC)
-    nohonkcmd = can.Message(data=[0x05, 0x2F, 0xD0, 0xAD, 0x03, 0x00], is_extended_id=False, arbitration_id=0x620, channel=canC)
-    bus.send(diagcmd, timeout=1)
-    while times > 0:
-        bus.send(honkcmd, timeout=1)
-        bus.send(nohonkcmd, timeout=1)
-        print("Honk")
-        times -= 1
-        if times > 0:
-            time.sleep(.5)
+def cantpmsg(x):
+    if isotpAvailable:
+        tpstack.send(x,0,1)
+        while tpstack.transmitting():
+            time.sleep(0.005)
+        return(tpstack.recv(block=True, timeout=5.0))
 
+def honk(times=1):
+    if isotpAvailable:
+        try:
+            tpstack.set_address(bcmaddr)
+            tpstack.start()
+            tpbus.send(wakeup, timeout=1)
+            print(cantpmsg(bytes(diag)).hex(' '))
+            while times > 0:
+                print("Honk")
+                print(cantpmsg(bytes(honkon)).hex(' '))
+                print(cantpmsg(bytes(nohonk)).hex(' '))
+                times -= 1
+                if times > 0:
+                    time.sleep(.2)
+                    print("Tester Present")
+                    print(cantpmsg(bytes(tester)).hex(' '))
+            tpstack.stop()
+        except:
+            print("ISO-TP Error")
+                
 def gpslink():
     webbrowser.open(f"https://www.google.com/maps/search/?api=1&query={oldgps[0]},{oldgps[1]}")
 
@@ -1422,6 +1446,32 @@ for monitor in monitorlist:
 # Define the can bus
 bus = can.interface.Bus('', interface='socketcan', filter=canFilter)
 notifier = can.Notifier(bus, [newmsg], loop=None)
+
+# Define the ISO-TP stack
+if isotpAvailable == True:
+    tpcanfilter = [(0x504, 0xFFF, 0),
+                   (0x7E8, 0xFFF, 0),
+                   (0x7E9, 0xFFF, 0),
+                   (0x7EC, 0xFFF, 0),
+                   (0x53F, 0xFFF, 0)]
+    tpbus = can.interface.Bus(canC, interface='socketcan', filter=tpcanfilter)
+    tpnotifier = can.Notifier(tpbus, [], loop=None)
+    params = {
+         'tx_data_min_length' : 8,
+         'tx_padding' : 0x00,
+         'stmin' : 0xF1
+    }
+    bcmaddr = isotp.Address(isotp.AddressingMode.Normal_11bits, rxid=0x504, txid=0x620)
+    pcmaddr = isotp.Address(isotp.AddressingMode.Normal_11bits, rxid=0x7E8, txid=0x7E0)
+    tcmaddr = isotp.Address(isotp.AddressingMode.Normal_11bits, rxid=0x7E9, txid=0x7E1)
+    bpcmaddr = isotp.Address(isotp.AddressingMode.Normal_11bits, rxid=0x7EC, txid=0x7E4)
+    radioaddr = isotp.Address(isotp.AddressingMode.Normal_11bits, rxid=0x53F, txid=0x7BF)
+    tpstack = isotp.NotifierBasedCanStack(
+        tpbus,
+        tpnotifier,
+        address=bcmaddr,
+        params=params
+        )
 
 
 # Forces tkinter to periodically look for external signals/interrupts and run things while in mainloop()
