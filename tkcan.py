@@ -23,6 +23,8 @@ parser.add_argument('--vcan', action='store_true',
                     help='Use VCAN0 and VCAN1 for testing')
 parser.add_argument('--fullscreen', '-f', action='store_true',
                     help='Enable Full Screen')
+parser.add_argument('--wide', '-w', action='store_true',
+                    help='Widescreen monitor layout 1920x480')
 args = parser.parse_args()
 
 if args.vcan:
@@ -1156,7 +1158,10 @@ def setuptachometer(parent, row, column): # Tachometer
 
 # Setup the graphics window
 root = Tk()
-root.geometry("800x480+0+0")
+if args.wide:
+    root.geometry("1920x480+0+0")
+else:
+    root.geometry("800x480+0+0")
 root.title("This is Root")
 root.protocol("WM_DELETE_WINDOW", quitprogram)
 if args.fullscreen:
