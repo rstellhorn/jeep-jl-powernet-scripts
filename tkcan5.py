@@ -503,7 +503,7 @@ def newtire(index,value):
         if tirefillset[index]:
             if value >= tirefillset[index]:
                 print(value, tirefillset[index])
-                (index + 1)
+                honk(index + 1)
                 tirefillset[index] = None
                 fillremain = 0
                 for i in range(4):
