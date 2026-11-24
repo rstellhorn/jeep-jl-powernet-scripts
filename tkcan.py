@@ -1165,7 +1165,7 @@ else:
 root.title("This is Root")
 root.protocol("WM_DELETE_WINDOW", quitprogram)
 if args.fullscreen:
-    root.attributes("-fullscreen", True)
+    root.after(1000, win.wm_attributes, '-fullscreen', 'true')
     
 
 # Setup the button row
